@@ -602,6 +602,7 @@ class Grouping:
             if len(categories) != 1:
                 raise ValueError(f"Grouping only supports non-unique values -> pre-defined categories for single key.")
             _, ikey = ismember(grouping, cats[0], base_index=base_index)
+            # For non-unique values -> categories, ordered is determined by sortedness of categories
             ordered = issorted(cats[0])
             _trusted = True
 
@@ -618,8 +619,9 @@ class Grouping:
                 raise ValueError(f"Invalid index {minval} found. Indices must be between invalid bin 0 and {maxindex}.")
             if maxval >= maxindex:
                 raise ValueError(f"Invalid index {maxval} found. Indices must be between invalid bin 0 and {maxindex}.")
-            if len(cats) == 1:
-                ordered = issorted(cats[0])
+            # For integer codes + categories (e.g., from_pandas), preserve the caller's ordered flag
+            # Do NOT overwrite based on sortedness
+            pass
         # base-0 indexing not allowed
         if filter is not None:
             ikey = combine_filter(ikey, filter)
@@ -958,9 +960,9 @@ class Grouping:
 
                         # need to fix the temp ikey to match the sort
                         if base_index == 0:
-                            _, tempikey = ismember(tempikey - 1, sortidx, base_index=1)
+                            _, tempikey = ismember(np.add(tempikey, -1), sortidx, base_index=1)
                         else:
-                            _, tempikey = ismember(tempikey, sortidx + 1, base_index=base_index)
+                            _, tempikey = ismember(tempikey, np.add(sortidx, 1), base_index=base_index)
                     elif lex is True:
                         # Believe there is nothing to do
                         pass
@@ -1365,14 +1367,14 @@ class Grouping:
         if self.isenum:
             found, _ = self.ismember(values)
             # expand boolean found
-            return found[self.ikey - 1]
+            return found[np.subtract(self.ikey, 1)]
         else:
             found, _ = self.ismember(values)
             # expand with a zero-base index
             if self.base_index == 0:
                 return found[self.catinstance]
             else:
-                return found[self.catinstance - 1]
+                return found[np.subtract(self.catinstance, 1)]
 
         # mask = None
         # result_len = len(self.catinstance)
@@ -1533,7 +1535,7 @@ class Grouping:
                 self._make_enumikey(list_values)
             elif self._base_index == 0:
                 # once generated remember (use set_dirty() to clear)
-                self._iKey = self._catinstance + 1
+                self._iKey = np.add(self._catinstance, 1)
             else:
                 raise ValueError("Internal error generating ikey")
 
@@ -2238,7 +2240,7 @@ class Grouping:
         if keychain.sort_gb_data and not transform:
             isortrows = keychain.isortrows
             if showfilter:
-                isortrows = hstack((0, isortrows + 1))
+                isortrows = hstack((0, np.add(isortrows, 1)))
 
             # apply the sort
             for key, value in accumdict.items():

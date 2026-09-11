@@ -3170,14 +3170,45 @@ class Dataset(Struct):
         riptable.Dataset.from_pandas
         """
         import pandas as pd
-        from .Utils.pandas_utils import fastarray_to_pandas_series
+        from .Utils.pandas_utils import fastarray_to_pandas_series, _extract_categorical_meta
 
-        return pd.DataFrame(
-            {
-                key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
-                for key, col in self.items()
-            }
-        )
+        # Build series dict and collect categorical metadata for roundtrip preservation
+        series_dict = {}
+        cat_meta_dict = {}
+        for key, col in self.items():
+            # fastarray_to_pandas_series already extracts metadata and stores in Series.attrs,
+            # but Series attrs do not survive DataFrame construction, so we collect metadata here
+            # directly from the original riptable column.
+            try:
+                from .rt_categorical import Categorical as RtCategorical
+
+                if isinstance(col, RtCategorical):
+                    try:
+                        meta = _extract_categorical_meta(col)
+                        if meta is not None:
+                            cat_meta_dict[key] = meta
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            series_dict[key] = fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
+
+        df = pd.DataFrame(series_dict)
+
+        # Store categorical metadata in DataFrame.attrs for roundtrip via from_pandas
+        # This preserves Dictionary, MultiKey, IntEnum modes and ordered flag, etc.
+        if cat_meta_dict:
+            try:
+                # Ensure attrs dict exists
+                if not hasattr(df, "attrs"):
+                    df.attrs = {}
+                df.attrs["_rt_categorical_meta"] = cat_meta_dict
+            except Exception:
+                # If attrs not supported, ignore (fallback to lossy conversion)
+                pass
+
+        return df
 
     def as_pandas_df(self):
         """
@@ -3234,7 +3265,7 @@ class Dataset(Struct):
         Dataset.to_pandas
         """
         import pandas as pd
-        from .Utils.pandas_utils import pandas_series_to_riptable
+        from .Utils.pandas_utils import pandas_series_to_riptable, _reconstruct_categorical_from_meta
 
         if preserve_index is None:
             index = df.index
@@ -3244,8 +3275,42 @@ class Dataset(Struct):
             preserve_index = not has_default_index
         if preserve_index:
             df = df.reset_index()
+
+        # Retrieve riptable categorical metadata stored by to_pandas for roundtrip preservation
+        rt_categorical_meta = {}
+        try:
+            if hasattr(df, "attrs"):
+                rt_categorical_meta = df.attrs.get("_rt_categorical_meta", {}) or {}
+        except Exception:
+            rt_categorical_meta = {}
+
         data = {}
         for key, col in df.items():
+            # If this column has stored riptable categorical metadata, reconstruct using it
+            # for perfect roundtrip (preserves Dictionary, MultiKey, IntEnum modes, ordered, etc.)
+            meta = rt_categorical_meta.get(key)
+            if meta is not None:
+                try:
+                    # col is a pandas Series with Categorical dtype
+                    # Extract pandas codes/categories for the reconstruct helper (needed for fallback)
+                    if isinstance(col.dtype, pd.CategoricalDtype):
+                        cat = col.cat
+                        codes = cat.codes
+                        categories = cat.categories
+                        if hasattr(codes, "to_numpy"):
+                            codes = codes.to_numpy()
+                            categories = categories.to_numpy()
+                        else:
+                            import numpy as np
+
+                            codes = np.asarray(codes)
+                            categories = np.asarray(categories)
+                        data[key] = _reconstruct_categorical_from_meta(codes, categories, meta)
+                        continue
+                except Exception:
+                    # Fallback to generic conversion on any error
+                    pass
+
             data[key] = pandas_series_to_riptable(col, tz=tz)
 
         return cls(data)

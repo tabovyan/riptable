@@ -1833,12 +1833,21 @@ class Categorical(GroupByOps, FastArray):
 
             # pandas invalid -1 turns into riptable invalid 0
             # just like regular int + categories, never change the order of pandas categories
-            categories = values.categories.values
+            # Pandas 3: categories.values may be ArrowStringArray, convert to numpy
+            try:
+                categories = values.categories.to_numpy()
+            except Exception:
+                categories = values.categories.values
+            # Ensure numpy array (handle ArrowStringArray, etc.)
+            try:
+                categories = np.asarray(categories)
+            except Exception:
+                pass
             if dtype is None:
                 newdt = int_dtype_from_len(len(categories))
                 index = np.add(values._codes, 1, dtype=newdt)
             else:
-                index = values._codes + 1
+                index = np.add(values._codes, 1)
 
             ordered = values.ordered
 
@@ -2013,6 +2022,7 @@ class Categorical(GroupByOps, FastArray):
                                 base_index=base_index,
                                 categorical=True,
                                 dtype=dtype,
+                                ordered=ordered,
                             )
                             return cls(grouping, invalid=invalid_category)
 
@@ -5468,7 +5478,7 @@ class Categorical(GroupByOps, FastArray):
                 c._fa[mask] = 0
                 return c
             else:
-                ikey += 1
+                ikey = np.add(ikey, 1)
                 # mark all invalids as 0
                 ikey[mask] = 0
                 return Categorical(ikey, strings, ordered=ordered)
@@ -5479,7 +5489,7 @@ class Categorical(GroupByOps, FastArray):
             return Categorical(self._fa, arr, ordered=ordered)
         else:
             if self.base_index == 0:
-                return Categorical(self._fa + 1, self.categories())
+                return Categorical(np.add(self._fa, 1), self.categories())
             return self
 
     @staticmethod

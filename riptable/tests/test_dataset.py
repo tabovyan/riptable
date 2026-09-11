@@ -2003,7 +2003,20 @@ class TestDataset(unittest.TestCase):
             self.assertIsInstance(ds[key], check_type)
 
         for key in ["a", "b", "c", "f", "g", "i"]:
-            expected = df[key].values.astype(ds[key].dtype)
+            # Pandas 3 defaults to datetime64[us]/timedelta64[us], riptable uses ns
+            # Convert expected values to ns if needed
+            vals = df[key].values
+            if vals.dtype.kind in "Mm" and "us" in str(vals.dtype):
+                expected = vals.astype("i8") * 1000
+                expected = expected.astype(ds[key].dtype)
+            elif vals.dtype.kind in "Mm" and "ms" in str(vals.dtype):
+                expected = vals.astype("i8") * 1_000_000
+                expected = expected.astype(ds[key].dtype)
+            elif vals.dtype.kind in "Mm" and str(vals.dtype) == "datetime64[s]":
+                expected = vals.astype("i8") * 1_000_000_000
+                expected = expected.astype(ds[key].dtype)
+            else:
+                expected = vals.astype(ds[key].dtype)
             self.assertTrue((ds[key] == expected).all(), msg=key)
 
         self.assertTrue(ds["d"].dtype.char == "S")
@@ -2049,9 +2062,12 @@ class TestDataset(unittest.TestCase):
         ds = Dataset.from_pandas(df)
         self.assertIsInstance(ds.B, TypeRegister.Categorical)
         self.assertIsInstance(ds.C, TypeRegister.Categorical)
-        self.assertTrue((df.A == ds.A.astype(str)).all())
+        self.assertTrue((df.A.astype(str) == ds.A.astype(str)).all())
         for key in "BCDEF":
-            self.assertTrue((df[key] == _bytes_to_string(ds[key].expand_array)).all())
+            # Pandas 3 is strict about categorical comparison; compare as strings
+            df_vals = df[key].astype(str) if hasattr(df[key], "astype") else df[key]
+            ds_vals = _bytes_to_string(ds[key].expand_array).astype(str)
+            self.assertTrue((df_vals == ds_vals).all())
 
         for key, tz in tz_keys.items():
             self.assertTrue((_datetime_to_int(df[key]) == ds[key].yyyymmdd).all())
@@ -2078,7 +2094,12 @@ class TestDataset(unittest.TestCase):
             if key == "G":
                 self.assertTrue((pd.DatetimeIndex(df[key]).tz_localize("UTC") == df2[key]).all())
             else:
-                self.assertTrue((df[key] == df2[key]).all())
+                # Pandas 3 is strict about categorical comparison; compare as strings for categoricals
+                try:
+                    self.assertTrue((df[key] == df2[key]).all())
+                except TypeError:
+                    # Fallback: compare string representations
+                    self.assertTrue((df[key].astype(str) == df2[key].astype(str)).all())
 
     def test_to_pandas_categorical_mapping(self):
         country_map = {0: "USA", 2: "IRL", 4: "GBR", 8: "AUS", 16: "CHN", 32: "JPN"}
@@ -2086,7 +2107,10 @@ class TestDataset(unittest.TestCase):
         ds = Dataset({k: Categorical([0, 2, 32], categories=country_map)})
         df = ds.to_pandas()
         ds_from_pandas = Dataset.from_pandas(df)
-        assert_array_equal(ds[k].as_singlekey().expand_array, ds_from_pandas[k].expand_array)
+        # Roundtrip should preserve original categorical mode and codes (Dictionary preserved via attrs)
+        # Previously this test checked lossy conversion via as_singlekey, but now we preserve.
+        assert ds[k].category_mode == ds_from_pandas[k].category_mode
+        assert_array_equal(np.asarray(ds[k]), np.asarray(ds_from_pandas[k]))
         assert_array_equal(ds[k].category_array, ds_from_pandas[k].category_array)
 
     def test_from_pandas_num_string(self):
@@ -2601,8 +2625,10 @@ def test_dataset_to_dataframe_roundtripping(categorical):
     ds = Dataset({k: categorical})
     df = ds.to_pandas()
     ds_from_pandas = Dataset.from_pandas(df)
-    assert_array_equal(ds[k].as_singlekey().expand_array, ds_from_pandas[k].expand_array)
-    # add support for checking category arrays of multikey categoricals
+    # With roundtrip preservation via attrs, we preserve original mode/codes, not as_singlekey
+    # Check that roundtrip preserves original categorical
+    assert ds[k].category_mode == ds_from_pandas[k].category_mode
+    assert_array_equal(np.asarray(ds[k]), np.asarray(ds_from_pandas[k]))
     if categorical.category_mode != CategoryMode.MultiKey:
         assert_array_equal(ds[k].category_array, ds_from_pandas[k].category_array)
 

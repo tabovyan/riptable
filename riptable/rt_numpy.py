@@ -5578,7 +5578,45 @@ def _mask_op(bool_list, funcNum, inplace=False):
     def func(*args):
         result = ledgerFunc(*args)
         if result is None:
-            # Operation not supported, so raise appropriate error.
+            # Fallback to numpy for BITWISE_AND/OR/XOR on bool arrays (riptide_cpp may not support in some builds)
+            # This fixes compatibility with numpy 1.26 / pandas 3 env where mask_and fails
+            try:
+                # args is tuple: (a, b, out?) or (a, b)
+                # For mask_and, funcNum is BITWISE_AND (503)
+                # Use numpy's bitwise operations as fallback
+                if funcNum == MATH_OPERATION.BITWISE_AND:
+                    # args[0] is tuple of arrays: (arr1, arr2, out?) or (arr1, arr2)
+                    # In _mask_op, it's called as func((bool_list[0], bool_list[1]), funcNum, 0) etc.
+                    # The first element of args is a tuple of arrays
+                    arr_tuple = args[0]
+                    if len(arr_tuple) == 3:
+                        # inplace: (a, b, out)
+                        a, b, out = arr_tuple
+                        np.bitwise_and(a, b, out=out)
+                        return out
+                    else:
+                        a, b = arr_tuple[:2]
+                        return np.bitwise_and(a, b)
+                elif funcNum == MATH_OPERATION.BITWISE_OR:
+                    arr_tuple = args[0]
+                    if len(arr_tuple) == 3:
+                        a, b, out = arr_tuple
+                        np.bitwise_or(a, b, out=out)
+                        return out
+                    else:
+                        a, b = arr_tuple[:2]
+                        return np.bitwise_or(a, b)
+                elif funcNum == MATH_OPERATION.BITWISE_XOR:
+                    arr_tuple = args[0]
+                    if len(arr_tuple) == 3:
+                        a, b, out = arr_tuple
+                        np.bitwise_xor(a, b, out=out)
+                        return out
+                    else:
+                        a, b = arr_tuple[:2]
+                        return np.bitwise_xor(a, b)
+            except Exception:
+                pass
             # Check all boolean arrays are same size
             size = len(bool_list[0])
             for i in range(lenbool):

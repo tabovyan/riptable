@@ -260,7 +260,37 @@ class MathLedger(Struct):
             print(f"BasicMathTwoInputs {tupleargs} {fastfunction} {final_num}")
         # speedup
         if cls.DebugUFunc is False:
-            return rc.BasicMathTwoInputs(tupleargs, fastfunction, final_num)
+            result = rc.BasicMathTwoInputs(tupleargs, fastfunction, final_num)
+            if result is None and fastfunction in (
+                MATH_OPERATION.BITWISE_AND,
+                MATH_OPERATION.BITWISE_OR,
+                MATH_OPERATION.BITWISE_XOR,
+            ):
+                # Fallback to numpy for bool bitwise ops (riptide may not support in some builds)
+                try:
+                    import numpy as np
+
+                    # tupleargs is (a, b) or (a, b, out)
+                    if len(tupleargs) == 3:
+                        a, b, out = tupleargs
+                        if fastfunction == MATH_OPERATION.BITWISE_AND:
+                            np.bitwise_and(a, b, out=out)
+                        elif fastfunction == MATH_OPERATION.BITWISE_OR:
+                            np.bitwise_or(a, b, out=out)
+                        else:
+                            np.bitwise_xor(a, b, out=out)
+                        return out
+                    else:
+                        a, b = tupleargs[:2]
+                        if fastfunction == MATH_OPERATION.BITWISE_AND:
+                            return np.bitwise_and(a, b)
+                        elif fastfunction == MATH_OPERATION.BITWISE_OR:
+                            return np.bitwise_or(a, b)
+                        else:
+                            return np.bitwise_xor(a, b)
+                except Exception:
+                    pass
+            return result
         return cls._FUNNEL_ALL(rc.BasicMathTwoInputs, tupleargs, fastfunction, final_num)
 
     @classmethod

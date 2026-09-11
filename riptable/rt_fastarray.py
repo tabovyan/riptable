@@ -2262,6 +2262,198 @@ class FastArray(np.ndarray):
     pow = np.ndarray.__pow__
     mod = np.ndarray.__mod__
 
+    # Fix scalar arithmetic: ndarray.__add__ with Python int scalar is broken in this env
+    # (returns bool). Override __add__ etc to use np.add which correctly handles scalar via __array_ufunc__.
+    def __add__(self, other):
+        # During early import, MathLedger may not be initialized; fallback to ndarray
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__add__(other)
+        except Exception:
+            pass
+        try:
+            return np.add(self, other)
+        except Exception:
+            # Fallback for string dtype mismatch (e.g., S + U) that numpy doesn't handle
+            # but original riptide_cpp does
+            return super().__add__(other)
+
+    def __radd__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__radd__(other)
+        except Exception:
+            pass
+        try:
+            return np.add(other, self)
+        except Exception:
+            return super().__radd__(other)
+
+    def __sub__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__sub__(other)
+        except Exception:
+            pass
+        return np.subtract(self, other)
+
+    def __rsub__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__rsub__(other)
+        except Exception:
+            pass
+        return np.subtract(other, self)
+
+    def __mul__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__mul__(other)
+        except Exception:
+            pass
+        return np.multiply(self, other)
+
+    def __rmul__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__rmul__(other)
+        except Exception:
+            pass
+        return np.multiply(other, self)
+
+    def __truediv__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__truediv__(other)
+        except Exception:
+            pass
+        try:
+            return np.true_divide(self, other)
+        except Exception:
+            return super().__truediv__(other)
+
+    def __rtruediv__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__rtruediv__(other)
+        except Exception:
+            pass
+        try:
+            return np.true_divide(other, self)
+        except Exception:
+            return super().__rtruediv__(other)
+
+    def __mod__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__mod__(other)
+        except Exception:
+            pass
+        try:
+            return np.mod(self, other)
+        except Exception:
+            return super().__mod__(other)
+
+    def __rmod__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__rmod__(other)
+        except Exception:
+            pass
+        try:
+            return np.mod(other, self)
+        except Exception:
+            return super().__rmod__(other)
+
+    def __floordiv__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__floordiv__(other)
+        except Exception:
+            pass
+        try:
+            return np.floor_divide(self, other)
+        except Exception:
+            return super().__floordiv__(other)
+
+    def __rfloordiv__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__rfloordiv__(other)
+        except Exception:
+            pass
+        try:
+            return np.floor_divide(other, self)
+        except Exception:
+            return super().__rfloordiv__(other)
+
+    def __iadd__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__iadd__(other)
+        except Exception:
+            pass
+        try:
+            # np.add with out=self for in-place
+            np.add(self, other, out=self)
+            return self
+        except Exception:
+            return super().__iadd__(other)
+
+    def __isub__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__isub__(other)
+        except Exception:
+            pass
+        try:
+            np.subtract(self, other, out=self)
+            return self
+        except Exception:
+            return super().__isub__(other)
+
+    def __imul__(self, other):
+        try:
+            from .rt_enum import TypeRegister as _TR
+
+            if _TR.MathLedger is None:
+                return super().__imul__(other)
+        except Exception:
+            pass
+        try:
+            np.multiply(self, other, out=self)
+            return self
+        except Exception:
+            return super().__imul__(other)
+
     # ---------------------------------------------------------------------------
     def str_append(self, other):
         if self.dtype.num == other.dtype.num:
@@ -4887,7 +5079,14 @@ class FastArray(np.ndarray):
                     if scalars < 2:
                         is_logical = 0
                         # check for add, sub, mul, divide, power
+                        # NOTE: scalar arithmetic via riptide_cpp is currently broken (returns bool or wrong)
+                        # with numpy 1.26 / pandas 3 env. Punt scalar arithmetic to numpy for correctness.
                         fast_function = gBinaryUFuncs.get(ufunc, None)
+                        if fast_function is not None and scalars == 1:
+                            fast_function = None
+                        if fast_function is None and scalars != 1:
+                            # re-check arithmetic only when no scalar (since we punted scalar case)
+                            fast_function = gBinaryUFuncs.get(ufunc, None)
                         if fast_function is None:
                             # check for comparison and logical or/and functions
                             fast_function = gBinaryLogicalUFuncs.get(ufunc, None)
@@ -5200,7 +5399,61 @@ class FastArray(np.ndarray):
             # NOTE: If the specified ufunc + inputs combination isn't supported by numpy either,
             #       as of numpy 1.17.x this call will end up raising a UFuncTypeError so the rest
             #       of the FastArray.__array_ufunc__ body (below) won't end up executing.
-            results = TypeRegister.MathLedger._ARRAY_UFUNC(super(FastArray, self), ufunc, method, *args, **kwargs)
+            # During early import (e.g., rt_datetime constants), MathLedger may not be set yet.
+            # Fallback to direct numpy ufunc on ndarray views.
+            if TypeRegister.MathLedger is None:
+                # Direct numpy fallback without ledger
+                # Convert FastArray inputs to ndarray views
+                np_args = []
+                for a in args:
+                    if isinstance(a, FastArray):
+                        np_args.append(a.view(np.ndarray))
+                    else:
+                        np_args.append(a)
+                np_kwargs = {}
+                for k, v in kwargs.items():
+                    if isinstance(v, FastArray):
+                        np_kwargs[k] = v.view(np.ndarray)
+                    else:
+                        np_kwargs[k] = v
+                # Call ufunc directly
+                results = ufunc(*np_args, **np_kwargs)
+                # Wrap result back as FastArray if it was ndarray
+                if isinstance(results, np.ndarray) and not isinstance(results, FastArray):
+                    results = results.view(FastArray)
+            else:
+                try:
+                    results = TypeRegister.MathLedger._ARRAY_UFUNC(super(FastArray, self), ufunc, method, *args, **kwargs)
+                except Exception as e:
+                    # Handle numpy casting errors for in-place operations (e.g., int32 /= 2)
+                    # Fallback to unsafe casting or float conversion
+                    if "Cannot cast ufunc" in str(e) and "out" in kwargs:
+                        # Try with casting='unsafe' by directly calling ufunc on ndarray views
+                        try:
+                            np_args = []
+                            for a in args:
+                                if isinstance(a, FastArray):
+                                    np_args.append(a.view(np.ndarray))
+                                else:
+                                    np_args.append(a)
+                            np_kwargs = {}
+                            for k, v in kwargs.items():
+                                if k == "out" and isinstance(v, tuple):
+                                    np_kwargs[k] = tuple(x.view(np.ndarray) if isinstance(x, FastArray) else x for x in v)
+                                elif isinstance(v, FastArray):
+                                    np_kwargs[k] = v.view(np.ndarray)
+                                else:
+                                    np_kwargs[k] = v
+                            # Use unsafe casting for in-place divide
+                            if "casting" not in np_kwargs:
+                                np_kwargs["casting"] = "unsafe"
+                            results = ufunc(*np_args, **np_kwargs)
+                            if isinstance(results, np.ndarray) and not isinstance(results, FastArray):
+                                results = results.view(FastArray)
+                        except Exception:
+                            raise e
+                    else:
+                        raise
 
         # If riptable has not implemented a certain ufunc (or doesn't support it for the given arguments),
         # emit a warning about it to let the user know.
@@ -6427,3 +6680,26 @@ _setfastarraytype()
 TypeRegister.FastArray = FastArray
 
 FastArray.register_function("describe", describe)
+
+# Fix for scalar arithmetic with Python int (pandas 3 / numpy 1.26 compatibility):
+# The C slot nb_add etc. for FastArray (ndarray subclass) does not correctly handle
+# scalar Python ints, returning bool instead of int. Overriding __add__ etc. in class
+# body is not sufficient to update the C slots; we force an update by re-assigning
+# the methods here, which triggers Python's slot wrapper update.
+# This ensures `fa + 1` calls our Python __add__ which uses np.add (which correctly
+# handles scalar via __array_ufunc__ punting to numpy).
+FastArray.__add__ = FastArray.__add__
+FastArray.__radd__ = FastArray.__radd__
+FastArray.__sub__ = FastArray.__sub__
+FastArray.__rsub__ = FastArray.__rsub__
+FastArray.__mul__ = FastArray.__mul__
+FastArray.__rmul__ = FastArray.__rmul__
+FastArray.__truediv__ = FastArray.__truediv__
+FastArray.__rtruediv__ = FastArray.__rtruediv__
+FastArray.__mod__ = FastArray.__mod__
+FastArray.__rmod__ = FastArray.__rmod__
+FastArray.__floordiv__ = FastArray.__floordiv__
+FastArray.__rfloordiv__ = FastArray.__rfloordiv__
+FastArray.__iadd__ = FastArray.__iadd__
+FastArray.__isub__ = FastArray.__isub__
+FastArray.__imul__ = FastArray.__imul__
