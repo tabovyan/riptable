@@ -5571,6 +5571,46 @@ def _mask_op(bool_list, funcNum, inplace=False):
         raise TypeError(f"Must all be boolean types")
 
     # we have at least two items
+    # Workaround for riptide_cpp bool mask_op bug: use Python bitwise ops for bool
+    # BASICMATH_TWO_INPUTS returns None for bool arrays in some cases
+    if dtype == 0:
+        # Use Python's & | ^ operations via numpy views to avoid riptide_cpp bug
+        import numpy as _np
+
+        def _py_mask_op(a, b, op):
+            av = a.view(_np.ndarray) if hasattr(a, "view") else _np.asarray(a)
+            bv = b.view(_np.ndarray) if hasattr(b, "view") else _np.asarray(b)
+            if op == MATH_OPERATION.BITWISE_AND:
+                res = av & bv
+            elif op == MATH_OPERATION.BITWISE_OR:
+                res = av | bv
+            elif op == MATH_OPERATION.BITWISE_XOR:
+                res = av ^ bv
+            elif op == MATH_OPERATION.BITWISE_ANDNOT:
+                res = av & ~bv
+            else:
+                res = av & bv
+            # Preserve FastArray type
+            if hasattr(a, "view"):
+                try:
+                    return res.view(type(a))
+                except Exception:
+                    return res
+            return res
+
+        if inplace:
+            result = bool_list[0]
+            for i in range(1, lenbool):
+                result = _py_mask_op(result, bool_list[i], funcNum)
+                # Inplace: copy back into original
+                bool_list[0][:] = result
+            return bool_list[0]
+        else:
+            result = _py_mask_op(bool_list[0], bool_list[1], funcNum)
+            for i in range(2, lenbool):
+                result = _py_mask_op(result, bool_list[i], funcNum)
+            return result
+
     # grabbing the func pointer speeds things up in testing
     ledgerFunc = TypeRegister.MathLedger._BASICMATH_TWO_INPUTS
 

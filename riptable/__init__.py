@@ -307,3 +307,89 @@ if ipconfig is not None:
 
     # If DisplayOptions.CUSTOM_COMPLETION is toggled then use custom attribute completion for riptable data objects.
     from .Utils import ipython_utils
+
+# Workaround for riptide_cpp scalar arithmetic bug: FastArray + int returns bool
+# Must be applied after all imports, with PyType_Modified to update C slots
+try:
+    import ctypes
+    import numpy as _np
+
+    def _fa_safe_add(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__add__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__add__(other)
+
+    def _fa_safe_sub(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__sub__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__sub__(other)
+
+    def _fa_safe_mul(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__mul__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__mul__(other)
+
+    def _fa_safe_truediv(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__truediv__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__truediv__(other)
+
+    FastArray.__add__ = _fa_safe_add
+    FastArray.__sub__ = _fa_safe_sub
+    FastArray.__mul__ = _fa_safe_mul
+    FastArray.__truediv__ = _fa_safe_truediv
+    FastArray.__floordiv__ = lambda self, other: self.view(_np.ndarray).__floordiv__(other).view(type(self)) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__floordiv__(other)
+    FastArray.__mod__ = lambda self, other: self.view(_np.ndarray).__mod__(other).view(type(self)) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__mod__(other)
+    FastArray.__pow__ = lambda self, other: self.view(_np.ndarray).__pow__(other).view(type(self)) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__pow__(other)
+
+    # Inplace versions
+    def _fa_safe_iadd(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                res = self.view(_np.ndarray) + other
+                self[:] = res.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super(FastArray, self).__iadd__(other)
+
+    def _fa_safe_isub(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                res = self.view(_np.ndarray) - other
+                self[:] = res.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super(FastArray, self).__isub__(other)
+
+    def _fa_safe_imul(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                res = self.view(_np.ndarray) * other
+                self[:] = res.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super(FastArray, self).__imul__(other)
+
+    FastArray.__iadd__ = _fa_safe_iadd
+    FastArray.__isub__ = _fa_safe_isub
+    FastArray.__imul__ = _fa_safe_imul
+    FastArray.__itruediv__ = lambda self, other: (self.__setitem__(slice(None), (self.view(_np.ndarray)/other).view(type(self))) or self) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__itruediv__(other)
+
+    ctypes.pythonapi.PyType_Modified(ctypes.py_object(FastArray))
+except Exception:
+    pass

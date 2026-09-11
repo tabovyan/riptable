@@ -2003,8 +2003,25 @@ class TestDataset(unittest.TestCase):
             self.assertIsInstance(ds[key], check_type)
 
         for key in ["a", "b", "c", "f", "g", "i"]:
-            expected = df[key].values.astype(ds[key].dtype)
-            self.assertTrue((ds[key] == expected).all(), msg=key)
+            # For datetime/timedelta, pandas 3 may use us resolution while riptable uses ns;
+            # convert expected values to ns for comparison
+            if key in ["f", "g"]:
+                arr = df[key].values
+                unit = "ns"
+                try:
+                    import re
+
+                    m = re.search(r"\[([a-z]+)", str(arr.dtype))
+                    if m:
+                        unit = m.group(1)
+                except Exception:
+                    pass
+                factor = {"ns": 1, "us": 1000, "ms": 1_000_000, "s": 1_000_000_000}.get(unit, 1)
+                expected = arr.astype("int64") * factor
+                self.assertTrue((np.asarray(ds[key], dtype="int64") == expected).all(), msg=key)
+            else:
+                expected = df[key].values.astype(ds[key].dtype)
+                self.assertTrue((ds[key] == expected).all(), msg=key)
 
         self.assertTrue(ds["d"].dtype.char == "S")
         self.assertTrue(ds["e"].dtype == float)
@@ -2086,8 +2103,15 @@ class TestDataset(unittest.TestCase):
         ds = Dataset({k: Categorical([0, 2, 32], categories=country_map)})
         df = ds.to_pandas()
         ds_from_pandas = Dataset.from_pandas(df)
-        assert_array_equal(ds[k].as_singlekey().expand_array, ds_from_pandas[k].expand_array)
+        # After roundtrip, Dictionary mode should be preserved (new behavior)
+        # Compare via as_singlekey to ensure string values match, and check mapping preservation
+        assert_array_equal(
+            ds[k].as_singlekey().expand_array, ds_from_pandas[k].as_singlekey().expand_array
+        )
         assert_array_equal(ds[k].category_array, ds_from_pandas[k].category_array)
+        # Also verify original Dictionary mode is preserved
+        assert ds_from_pandas[k].category_mode == ds[k].category_mode
+        assert_array_equal(ds[k]._fa, ds_from_pandas[k]._fa)
 
     def test_from_pandas_num_string(self):
         dates = ["20190101", "20190101"]
@@ -2601,10 +2625,16 @@ def test_dataset_to_dataframe_roundtripping(categorical):
     ds = Dataset({k: categorical})
     df = ds.to_pandas()
     ds_from_pandas = Dataset.from_pandas(df)
-    assert_array_equal(ds[k].as_singlekey().expand_array, ds_from_pandas[k].expand_array)
-    # add support for checking category arrays of multikey categoricals
+    # After roundtrip, categorical mode should be preserved (new behavior for Dictionary/MultiKey)
+    # Compare via as_singlekey to ensure string/value representation matches
+    assert_array_equal(
+        ds[k].as_singlekey().expand_array, ds_from_pandas[k].as_singlekey().expand_array
+    )
+    # For non-multikey, also check category_array preservation
     if categorical.category_mode != CategoryMode.MultiKey:
         assert_array_equal(ds[k].category_array, ds_from_pandas[k].category_array)
+    # Verify mode preservation for all types
+    assert ds_from_pandas[k].category_mode == categorical.category_mode
 
 
 if __name__ == "__main__":

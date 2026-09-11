@@ -5468,7 +5468,8 @@ class Categorical(GroupByOps, FastArray):
                 c._fa[mask] = 0
                 return c
             else:
-                ikey += 1
+                # Workaround for scalar ADD bug: use ndarray view
+                ikey = (ikey.view(np.ndarray) + 1).view(type(ikey))
                 # mark all invalids as 0
                 ikey[mask] = 0
                 return Categorical(ikey, strings, ordered=ordered)

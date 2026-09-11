@@ -218,7 +218,9 @@ UTC_1970_DAY_SPLITS = FastArray(
 )
 
 # UTC @ midnight, years 1970 - 2099
-UTC_1970_SPLITS = UTC_1970_DAY_SPLITS * NANOS_PER_DAY
+# Workaround for riptide_cpp scalar arithmetic bug: use ndarray view
+import numpy as _np
+UTC_1970_SPLITS = (_np.asarray(UTC_1970_DAY_SPLITS) * NANOS_PER_DAY).view(type(UTC_1970_DAY_SPLITS))
 
 MATLAB_EPOCH_DATENUM = 719529
 EPOCH_DAY_OF_WEEK = DayOfWeek.Thursday

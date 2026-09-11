@@ -3172,12 +3172,27 @@ class Dataset(Struct):
         import pandas as pd
         from .Utils.pandas_utils import fastarray_to_pandas_series
 
-        return pd.DataFrame(
-            {
-                key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
-                for key, col in self.items()
-            }
-        )
+        # Create Series first to preserve attrs, then construct DataFrame
+        # (pd.DataFrame(dict_of_series) strips Series.attrs in pandas 3, so we store
+        # riptable metadata in df.attrs as a fallback)
+        series_dict = {
+            key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
+            for key, col in self.items()
+        }
+        df = pd.DataFrame(series_dict)
+        # Store riptable-specific metadata in df.attrs for roundtrip preservation
+        try:
+            rt_meta = {}
+            for key, ser in series_dict.items():
+                if hasattr(ser, "attrs") and ser.attrs:
+                    rt_specific = {k: v for k, v in ser.attrs.items() if k.startswith("rt_")}
+                    if rt_specific:
+                        rt_meta[key] = rt_specific
+            if rt_meta:
+                df.attrs["_rt_categorical_meta"] = rt_meta
+        except Exception:
+            pass
+        return df
 
     def as_pandas_df(self):
         """
@@ -3245,7 +3260,21 @@ class Dataset(Struct):
         if preserve_index:
             df = df.reset_index()
         data = {}
+        # Retrieve riptable metadata stored in df.attrs (for categorical roundtrip)
+        rt_meta = {}
+        try:
+            rt_meta = df.attrs.get("_rt_categorical_meta", {}) or {}
+        except Exception:
+            pass
         for key, col in df.items():
+            # If per-column attrs were stripped, restore from df.attrs
+            try:
+                if hasattr(col, "attrs"):
+                    col_rt_meta = rt_meta.get(key, {})
+                    if col_rt_meta:
+                        col.attrs.update(col_rt_meta)
+            except Exception:
+                pass
             data[key] = pandas_series_to_riptable(col, tz=tz)
 
         return cls(data)
@@ -4519,12 +4548,31 @@ class Dataset(Struct):
     def _mask_reduce(self, func, is_ormask: bool):
         """helper function for boolean masks: see mask_or_isnan, et al"""
         mask = None
-        funcmask = TypeRegister.MathLedger._BASICMATH_TWO_INPUTS
+        # Workaround for riptide_cpp bool mask_op bug: use Python bitwise ops
+        # BASICMATH_TWO_INPUTS returns None or wrong result for bool
+        import numpy as _np
 
-        if is_ormask:
-            funcNum = MATH_OPERATION.BITWISE_OR
-        else:
-            funcNum = MATH_OPERATION.BITWISE_AND
+        def _py_or(a, b):
+            av = a.view(_np.ndarray) if hasattr(a, "view") else _np.asarray(a)
+            bv = b.view(_np.ndarray) if hasattr(b, "view") else _np.asarray(b)
+            res = av | bv
+            if hasattr(a, "view"):
+                try:
+                    return res.view(type(a))
+                except Exception:
+                    return res
+            return res
+
+        def _py_and(a, b):
+            av = a.view(_np.ndarray) if hasattr(a, "view") else _np.asarray(a)
+            bv = b.view(_np.ndarray) if hasattr(b, "view") else _np.asarray(b)
+            res = av & bv
+            if hasattr(a, "view"):
+                try:
+                    return res.view(type(a))
+                except Exception:
+                    return res
+            return res
 
         # loop through all computable columns
         cols = self.computable()
@@ -4534,8 +4582,10 @@ class Dataset(Struct):
             if mask is None:
                 mask = bool_mask
             else:
-                # inplace is faster
-                funcmask((mask, bool_mask, mask), funcNum, 0)
+                if is_ormask:
+                    mask = _py_or(mask, bool_mask)
+                else:
+                    mask = _py_and(mask, bool_mask)
         return mask
 
     def mask_or_isnan(self) -> FastArray:

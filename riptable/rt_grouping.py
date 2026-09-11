@@ -957,10 +957,15 @@ class Grouping:
                             self._grouping_unique_dict[k] = v[sortidx]
 
                         # need to fix the temp ikey to match the sort
+                        # Workaround for riptide_cpp scalar ADD/SUB bug: use ndarray view
                         if base_index == 0:
-                            _, tempikey = ismember(tempikey - 1, sortidx, base_index=1)
+                            _, tempikey = ismember(
+                                tempikey.view(np.ndarray) - 1, sortidx, base_index=1
+                            )
                         else:
-                            _, tempikey = ismember(tempikey, sortidx + 1, base_index=base_index)
+                            _, tempikey = ismember(
+                                tempikey, sortidx.view(np.ndarray) + 1, base_index=base_index
+                            )
                     elif lex is True:
                         # Believe there is nothing to do
                         pass
@@ -970,7 +975,8 @@ class Grouping:
 
                     # set either catinstance or iKey
                     if base_index == 0:
-                        self._catinstance = tempikey - 1
+                        # Workaround for scalar SUB bug
+                        self._catinstance = tempikey.view(np.ndarray) - 1
                     else:
                         self._iKey = tempikey
 
@@ -1365,7 +1371,10 @@ class Grouping:
         if self.isenum:
             found, _ = self.ismember(values)
             # expand boolean found
-            return found[self.ikey - 1]
+            # Workaround for scalar SUB bug
+            import numpy as _np
+            ikey_minus_1 = (self.ikey.view(_np.ndarray) - 1).view(type(self.ikey))
+            return found[ikey_minus_1]
         else:
             found, _ = self.ismember(values)
             # expand with a zero-base index
@@ -3262,7 +3271,16 @@ class Grouping:
             if arr is None:
                 arr = v.astype(stringtype)
             else:
-                arr = arr + sep + v.astype(stringtype)
+                # Use np.char.add for string concatenation (FastArray + str not supported)
+                import numpy as np
+
+                # Ensure sep matches stringtype (bytes vs unicode)
+                sep_arr = sep.encode() if stringtype == "S" else sep
+                arr = np.char.add(np.char.add(arr.astype(stringtype), sep_arr), v.astype(stringtype))
+                # Convert back to FastArray to preserve riptable type
+                from .rt_fastarray import FastArray
+
+                arr = FastArray(arr)
 
         # name the array
         arr.set_name(name)

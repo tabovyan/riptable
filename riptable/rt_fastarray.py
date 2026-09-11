@@ -2262,6 +2262,232 @@ class FastArray(np.ndarray):
     pow = np.ndarray.__pow__
     mod = np.ndarray.__mod__
 
+    # Workaround for riptide_cpp scalar ADD/SUB bug where int32 array + Python int
+    # returns bool instead of correct int. Use numpy path for scalar ops.
+    def __add__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__add__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__add__(other)
+
+    def __sub__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__sub__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__sub__(other)
+
+    def __radd__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__radd__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__radd__(other)
+
+    def __rsub__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return np.subtract(other, self.view(np.ndarray)).view(type(self))
+        except Exception:
+            pass
+        return super().__rsub__(other)
+
+    def __iadd__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) + other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__iadd__(other)
+
+    def __isub__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) - other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__isub__(other)
+
+    def __mul__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__mul__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__mul__(other)
+
+    def __truediv__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__truediv__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__truediv__(other)
+
+    def __floordiv__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__floordiv__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__floordiv__(other)
+
+    def __mod__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__mod__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__mod__(other)
+
+    def __pow__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return self.view(np.ndarray).__pow__(other).view(type(self))
+        except Exception:
+            pass
+        return super().__pow__(other)
+
+    def __rmul__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return (other * self.view(np.ndarray)).view(type(self))
+        except Exception:
+            pass
+        return super().__rmul__(other) if hasattr(super(), "__rmul__") else self.__mul__(other)
+
+    def __rtruediv__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return (other / self.view(np.ndarray)).view(type(self))
+        except Exception:
+            pass
+        return super().__rtruediv__(other) if hasattr(super(), "__rtruediv__") else self.__truediv__(other)
+
+    def __rfloordiv__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return (other // self.view(np.ndarray)).view(type(self))
+        except Exception:
+            pass
+        return super().__rfloordiv__(other) if hasattr(super(), "__rfloordiv__") else self.__floordiv__(other)
+
+    def __rmod__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return (other % self.view(np.ndarray)).view(type(self))
+        except Exception:
+            pass
+        return super().__rmod__(other) if hasattr(super(), "__rmod__") else self.__mod__(other)
+
+    def __rpow__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                return (other**self.view(np.ndarray)).view(type(self))
+        except Exception:
+            pass
+        return super().__rpow__(other) if hasattr(super(), "__rpow__") else self.__pow__(other)
+
+    def __imul__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) * other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__imul__(other)
+
+    def __itruediv__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) / other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__itruediv__(other)
+
+    def __ifloordiv__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) // other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__ifloordiv__(other)
+
+    def __imod__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) % other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__imod__(other)
+
+    def __ipow__(self, other):
+        try:
+            if self.dtype.num in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(
+                other, (int, float, np.integer, np.floating)
+            ):
+                result = self.view(np.ndarray) ** other
+                self[:] = result.view(type(self))
+                return self
+        except Exception:
+            pass
+        return super().__ipow__(other)
+
     # ---------------------------------------------------------------------------
     def str_append(self, other):
         if self.dtype.num == other.dtype.num:
@@ -4814,6 +5040,26 @@ class FastArray(np.ndarray):
         fast_function: Optional[MATH_OPERATION] = None
         reduce_func: Optional[REDUCE_FUNCTIONS] = None
 
+        # Workaround for riptide_cpp scalar ADD/SUB bug with numpy 2 / Python int scalars
+        # where ADD returns bool instead of correct int. Force punt to numpy for these cases.
+        if (
+            FastArray.FasterUFunc
+            and method == "__call__"
+            and ufunc in (np.add, np.subtract)
+            and ufunc.nin == 2
+            and len(args) == 2
+        ):
+            scalars = [type(a) in ScalarType for a in args]
+            if sum(scalars) == 1:
+                arr_arg = args[1] if scalars[0] else args[0]
+                try:
+                    # Any integer dtype can trigger the bug (int8, int16, int32, int64, uint*)
+                    is_int = isinstance(arr_arg, np.ndarray) and arr_arg.dtype.kind in ("i", "u")
+                except Exception:
+                    is_int = False
+                if is_int:
+                    toplevel_abort = True
+
         # Handle reduce ufunc methods.
         # note: when method is 'at' this is an inplace unbuffered operation
         # this can speed up routines that use heavy masked operations
@@ -6261,6 +6507,59 @@ def _FixupDocStrings():
         if (funcs[0] in npdict) and (funcs[1].__doc__ is None):
             funcs[1].__doc__ = npdict[funcs[0]].__doc__
 
+# Workaround for riptide_cpp scalar arithmetic bug: force Python type slots to update
+# after overriding __add__ etc. (operator+ bypasses Python __add__ without PyType_Modified)
+# Define new functions and assign after class creation, then call PyType_Modified
+try:
+    import ctypes
+    import numpy as _np
+
+    def _safe_add(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__add__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__add__(other)
+
+    def _safe_sub(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__sub__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__sub__(other)
+
+    def _safe_mul(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__mul__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__mul__(other)
+
+    def _safe_truediv(self, other):
+        try:
+            if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)):
+                return self.view(_np.ndarray).__truediv__(other).view(type(self))
+        except Exception:
+            pass
+        return super(FastArray, self).__truediv__(other)
+
+    # Assign
+    FastArray.__add__ = _safe_add
+    FastArray.__sub__ = _safe_sub
+    FastArray.__mul__ = _safe_mul
+    FastArray.__truediv__ = _safe_truediv
+    # For other ops, reuse same pattern via lambda to avoid repetition
+    FastArray.__floordiv__ = lambda self, other: self.view(_np.ndarray).__floordiv__(other).view(type(self)) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__floordiv__(other)
+    FastArray.__mod__ = lambda self, other: self.view(_np.ndarray).__mod__(other).view(type(self)) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__mod__(other)
+    FastArray.__pow__ = lambda self, other: self.view(_np.ndarray).__pow__(other).view(type(self)) if self.dtype.num in (1,2,3,4,5,6,7,8,9,10,11,12) and isinstance(other, (int,float,_np.integer,_np.floating)) else super(FastArray, self).__pow__(other)
+
+    ctypes.pythonapi.PyType_Modified(ctypes.py_object(FastArray))
+except Exception as e:
+    # print("FastArray workaround failed", e)
+    pass
 
 # ----------------------------------------------------------
 class Threading:
