@@ -687,7 +687,8 @@ dtype = {dtype}"""
     x = rt.FastArray(copy.copy(A_array))
     z = copy.copy(A_array)
 
-    roll_a = a.rolling(window).quantile(quantile=quantile, interpolation="midpoint")
+    # Pandas 3 renamed the Rolling.quantile() parameter from `quantile` to `q`.
+    roll_a = a.rolling(window).quantile(q=quantile, interpolation="midpoint")
     roll_x = x.rolling_quantile(q=quantile, window=window)
 
     assert_array_almost_equal(roll_a[0].values[window:], roll_x[window:], err_msg=err_msg())

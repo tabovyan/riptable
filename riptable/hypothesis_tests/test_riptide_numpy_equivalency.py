@@ -225,9 +225,6 @@ class TestRiptableNumpyEquivalency:
             assert_array_equal_(np.array(rt_arange), np_arange)
             assert isinstance(rt_arange, FastArray)
 
-    # TODO: Delete this test once SOQTEST-6495 is resolved. This way arange's main functionality can still be tested
-    @pytest.mark.xfail(reason="SOQTEST-6495 kwargs not implemented in riptable.arange()")
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     @given(start_stop_step_strategy())
     def test_arange_kwargs(self, start_stop_step):
         start = start_stop_step["start"]
@@ -702,11 +699,6 @@ class TestRiptableNumpyEquivalency:
         assert isinstance(rt_full, FastArray)
         assert np.isfortran(rt_full) == np.isfortran(np_full)
 
-    @pytest.mark.xfail(
-        reason="SOQTEST-6495 kwargs not implemented in riptable.full()",
-        raises=ValueError,
-    )
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     @given(
         shape=ndarray_shape_strategy(),
         fill_value=ints_or_floats_example(),
@@ -754,7 +746,7 @@ class TestRiptableNumpyEquivalency:
     def test_int8(self, examples):
         for i in examples:
             rt_int8 = rt.int8(i)
-            np_int8 = np.int8(i)
+            np_int8 = np.array(i).astype(np.int8)[()]
             assert_equal_(rt_int8, np_int8)
             assert isinstance(rt_int8, type(np_int8))
 
@@ -772,7 +764,7 @@ class TestRiptableNumpyEquivalency:
     def test_int16(self, examples):
         for i in examples:
             rt_int16 = rt.int16(i)
-            np_int16 = np.int16(i)
+            np_int16 = np.array(i).astype(np.int16)[()]
             assert_equal_(rt_int16, np_int16)
             assert isinstance(rt_int16, type(np_int16))
 
@@ -796,7 +788,7 @@ class TestRiptableNumpyEquivalency:
             except BaseException as e:
                 rt_err = str(e)
             try:
-                np_int32 = np.int32(i)
+                np_int32 = np.array(i).astype(np.int32)[()]
             except BaseException as e:
                 np_err = str(e)
             if rt_err or np_err:
@@ -825,7 +817,7 @@ class TestRiptableNumpyEquivalency:
             except BaseException as e:
                 rt_err = str(e)
             try:
-                np_int64 = np.int64(i)
+                np_int64 = np.array(i).astype(np.int64)[()]
             except BaseException as e:
                 np_err = str(e)
 
@@ -1377,8 +1369,6 @@ class TestRiptableNumpyEquivalency:
         else:
             assert not np.isfortran(rt_ones)
 
-    @pytest.mark.xfail(reason="SOQTEST-6495 kwargs not implemented in riptable.ones")
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     @given(
         shape=ndarray_shape_strategy(),
         dtype=ints_or_floats_dtypes(),
@@ -1721,7 +1711,7 @@ class TestRiptableNumpyEquivalency:
     def test_uint8(self, examples):
         for i in examples:
             rt_uint8 = rt.uint8(i)
-            np_uint8 = np.uint8(i)
+            np_uint8 = np.array(i).astype(np.uint8)[()]
             assert_equal_(rt_uint8, np_uint8)
             assert isinstance(rt_uint8, type(np_uint8))
 
@@ -1739,7 +1729,7 @@ class TestRiptableNumpyEquivalency:
     def test_uint16(self, examples):
         for i in examples:
             rt_uint16 = rt.uint16(i)
-            np_uint16 = np.uint16(i)
+            np_uint16 = np.array(i).astype(np.uint16)[()]
             assert_equal_(rt_uint16, np_uint16)
             assert isinstance(rt_uint16, type(np_uint16))
 
@@ -1757,7 +1747,7 @@ class TestRiptableNumpyEquivalency:
     def test_uint32(self, examples):
         for i in examples:
             rt_uint32 = rt.uint32(i)
-            np_uint32 = np.uint32(i)
+            np_uint32 = np.array(i).astype(np.uint32)[()]
             assert_equal_(rt_uint32, np_uint32)
             assert isinstance(rt_uint32, type(np_uint32))
 
@@ -1775,7 +1765,7 @@ class TestRiptableNumpyEquivalency:
     def test_uint64(self, examples):
         for i in examples:
             rt_uint64 = rt.uint64(i)
-            np_uint64 = np.uint64(i)
+            np_uint64 = np.array(i).astype(np.uint64)[()]
             assert_equal_(rt_uint64, np_uint64)
             assert isinstance(rt_uint64, type(np_uint64))
 
@@ -1883,8 +1873,6 @@ class TestRiptableNumpyEquivalency:
         else:
             assert not np.isfortran(rt_zeros)
 
-    @pytest.mark.xfail(reason="SOQTEST-6495 kwargs not implemented in riptable.zeros")
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     @given(
         shape=ndarray_shape_strategy(),
         dtype=ints_or_floats_dtypes(),

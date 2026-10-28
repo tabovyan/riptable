@@ -2003,7 +2003,16 @@ class TestDataset(unittest.TestCase):
             self.assertIsInstance(ds[key], check_type)
 
         for key in ["a", "b", "c", "f", "g", "i"]:
-            expected = df[key].values.astype(ds[key].dtype)
+            values = df[key].values
+            # Pandas 3 holds datetimes/timedeltas at s/ms/us/ns resolution;
+            # normalize to ns (the resolution riptable stores) before casting
+            # to the riptable dtype, otherwise e.g. microsecond values are
+            # compared against nanosecond values.
+            if values.dtype.kind == "M":
+                values = values.astype("datetime64[ns]")
+            elif values.dtype.kind == "m":
+                values = values.astype("timedelta64[ns]")
+            expected = values.astype(ds[key].dtype)
             self.assertTrue((ds[key] == expected).all(), msg=key)
 
         self.assertTrue(ds["d"].dtype.char == "S")
@@ -2078,7 +2087,10 @@ class TestDataset(unittest.TestCase):
             if key == "G":
                 self.assertTrue((pd.DatetimeIndex(df[key]).tz_localize("UTC") == df2[key]).all())
             else:
-                self.assertTrue((df[key] == df2[key]).all())
+                # Compare values, not dtypes: pandas refuses == between
+                # categoricals whose categories/ordered flags differ, and
+                # to_pandas now preserves the categorical's ordered flag.
+                self.assertEqual(df[key].tolist(), df2[key].tolist())
 
     def test_to_pandas_categorical_mapping(self):
         country_map = {0: "USA", 2: "IRL", 4: "GBR", 8: "AUS", 16: "CHN", 32: "JPN"}
@@ -2086,7 +2098,7 @@ class TestDataset(unittest.TestCase):
         ds = Dataset({k: Categorical([0, 2, 32], categories=country_map)})
         df = ds.to_pandas()
         ds_from_pandas = Dataset.from_pandas(df)
-        assert_array_equal(ds[k].as_singlekey().expand_array, ds_from_pandas[k].expand_array)
+        assert_array_equal(ds[k].expand_array, ds_from_pandas[k].expand_array)
         assert_array_equal(ds[k].category_array, ds_from_pandas[k].category_array)
 
     def test_from_pandas_num_string(self):
@@ -2601,7 +2613,10 @@ def test_dataset_to_dataframe_roundtripping(categorical):
     ds = Dataset({k: categorical})
     df = ds.to_pandas()
     ds_from_pandas = Dataset.from_pandas(df)
-    assert_array_equal(ds[k].as_singlekey().expand_array, ds_from_pandas[k].expand_array)
+    # expand_array on both sides: for multi-key / dictionary categoricals
+    # this compares the per-key expansions / mapping codes of the restored
+    # categorical, not a flattened single-key expansion.
+    assert_array_equal(ds[k].expand_array, ds_from_pandas[k].expand_array)
     # add support for checking category arrays of multikey categoricals
     if categorical.category_mode != CategoryMode.MultiKey:
         assert_array_equal(ds[k].category_array, ds_from_pandas[k].category_array)

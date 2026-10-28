@@ -77,7 +77,6 @@ class NanUnawareTestImpl:
 
 class TestMax:
     # TODO: Extend this to also check integer dtypes (dtype=ints_or_floats_dtypes())
-    @pytest.mark.xfail(reason="This test exposes a known bug around NaN-handling that needs to be fixed.")
     @given(
         arr=arrays(
             shape=one_darray_shape_strategy(),
@@ -108,7 +107,6 @@ class TestMax:
 
 class TestMin:
     # TODO: Extend this to also check integer dtypes (dtype=ints_or_floats_dtypes()).
-    @pytest.mark.xfail(reason="This test exposes a known bug around NaN-handling that needs to be fixed.")
     @given(
         arr=arrays(
             shape=one_darray_shape_strategy(),
@@ -139,7 +137,6 @@ class TestMin:
 
 class TestSum:
     # TODO: Extend this to also check integer dtypes (dtype=ints_or_floats_dtypes()).
-    @pytest.mark.xfail(reason="This test exposes a known bug around NaN-handling that needs to be fixed.")
     @given(
         arr=arrays(
             shape=one_darray_shape_strategy(),
@@ -153,6 +150,10 @@ class TestSum:
 
         One or more NaNs in the input array should result in the function returning a NaN.
         """
+        # A sum can also be NaN without any NaN input when the input
+        # contains both +inf and -inf (an indeterminate form); that is
+        # numpy behavior, not a NaN-propagation failure, so exclude it.
+        assume(not (np.any(arr == np.inf) and np.any(arr == -np.inf)))
         # Get the function implementation based on how we want to call it.
         if func_type == "module":
             test_func = lambda x: rt.sum(x)

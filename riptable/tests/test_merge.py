@@ -995,11 +995,13 @@ _merge_column_compat_rules_cases = [
 
 @pytest.mark.parametrize(
     "left_keycols,right_keycols,is_allowed,is_hard_error",
-    itertools.chain.from_iterable(
-        [
-            _create_merge_column_compat_rules_integer_cases(10, 8),
-            _merge_column_compat_rules_cases,
-        ]
+    list(
+        itertools.chain.from_iterable(
+            [
+                _create_merge_column_compat_rules_integer_cases(10, 8),
+                _merge_column_compat_rules_cases,
+            ]
+        )
     ),
 )
 def test_merge_columns_compat_rules(left_keycols, right_keycols, is_allowed, is_hard_error):

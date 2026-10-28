@@ -1,7 +1,7 @@
 import hypothesis.extra.pandas as pdst
 import numpy as np
 import pytest
-from hypothesis import Verbosity, given, settings
+from hypothesis import HealthCheck, Verbosity, given, settings
 from hypothesis.extra.numpy import arrays
 from hypothesis.strategies import integers
 
@@ -72,7 +72,10 @@ class TestSaveLoad:
     # The reason we have multiple test cases in one test method is so re-use of Hypothesis generated data.
     # Alternatives to this approach would be to cache the generated data and split these test cases out which
     # would remove the need for turning off the deadline setting.
-    @settings(deadline=None)
+    # The tmpdir fixture is shared across hypothesis examples, but each
+    # example fully overwrites the file at tmpdir.join(name(...)) before
+    # loading it, so no state carries between examples.
+    @settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         arr=generate_array(
             shape=ndarray_shape_strategy(),
@@ -97,7 +100,8 @@ class TestSaveLoad:
         assert_array_equal_(f_arr2, f_arr)
 
     # TODO fold this test case in the Dataset test case below
-    @settings(deadline=None)
+    # See test_save_load_array: the tmpdir path is fully overwritten per example.
+    @settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         arr=generate_array(
             shape=ndarray_shape_strategy(),
@@ -129,7 +133,8 @@ class TestSaveLoad:
         assert_array_equal_(ds[name(f_arr)], ds2[name(f_arr)])
 
     # TODO add columns for ndarray, FastArray, Categorical, Struct, and nested DataSets
-    @settings(deadline=None)
+    # See test_save_load_array: the tmpdir path is fully overwritten per example.
+    @settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(dataframe=pdst.data_frames(column_by_dtypes()))
     def test_save_load_datasets(self, dataframe, tmpdir):
         # generate a dataframe of all the dtypes
@@ -191,7 +196,8 @@ class TestSaveLoad:
             assert_save_load(f_arr2, f_arr1)
             assert_array_equal_(f_arr2._np, f_arr2._np)
 
-    @settings(deadline=None, verbosity=Verbosity.verbose)
+    # See test_save_load_array: the tmpdir path is fully overwritten per example.
+    @settings(deadline=None, verbosity=Verbosity.verbose, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         dataframe=pdst.data_frames(column_by_dtypes()),
         stack_count=integers(min_value=0, max_value=10),

@@ -376,6 +376,46 @@ def _ASTYPE(self, dtype):
     return self.astype(dtype)
 
 
+def _exact_int64_sum(arr_np):
+    """
+    Exact int64 sum of a 1-D int64 array, or ``None`` when the sum might
+    overflow int64. The bound ``size * max(|min|, |max|)`` is an upper
+    bound on the absolute sum, so a sum within range cannot overflow;
+    anything else falls back to the C++ reduction, which returns a
+    float64 for overflowing sums (and propagates invalids). Arrays
+    containing the int64 invalid sentinel always fall back, since the
+    sentinel's magnitude alone exceeds the bound.
+    """
+    if arr_np.size == 0:
+        return np.int64(0)
+    lo = int(arr_np.min())
+    hi = int(arr_np.max())
+    if max(-lo, hi) * arr_np.size > 9223372036854775807:
+        return None
+    return np.sum(arr_np, dtype=np.int64)
+
+
+def _fallback_float_sum_if_overflowed(arr, result, reduce_func):
+    """
+    Recompute a floating-point sum that the C++ reduction returned as NaN.
+
+    The C++ scatter/gather reduction keeps a per-chunk int64 side-channel;
+    when a chunk sum exceeds the int64 range it saturates to the invalid
+    sentinel, which then poisons the combined double result to NaN even
+    though the input contains no invalid values. Only recompute when the
+    result is NaN and the input has no NaNs, so the normal (and NaN
+    propagating) paths are untouched.
+    """
+    if not isinstance(result, float) or result == result:
+        return result
+    arr_np = np.asarray(arr)
+    if arr_np.dtype.kind != "f" or arr_np.size == 0 or bool(np.any(np.isnan(arr_np))):
+        return result
+    if reduce_func == REDUCE_FUNCTIONS.REDUCE_NANSUM:
+        return float(np.nansum(arr_np, dtype=np.float64))
+    return float(np.sum(arr_np, dtype=np.float64))
+
+
 # --------------------------------------------------------------
 # --------------------------------------------------------------
 class FastArray(np.ndarray):
@@ -2152,7 +2192,28 @@ class FastArray(np.ndarray):
             result = npFunc(self._np, *args, **kwargs)
             return result
 
-        result = TypeRegister.MathLedger._REDUCE(self, reduceFunc)
+        if (
+            reduceFunc in (REDUCE_FUNCTIONS.REDUCE_SUM, REDUCE_FUNCTIONS.REDUCE_NANSUM)
+            and self.dtype.kind == "i"
+            and self.dtype.itemsize == 8
+            and len(self.shape) == 1
+            and kwargs.get("dtype", None) is None
+        ):
+            # rc.Reduce accumulates sums in float64, losing exactness past
+            # 2**53. Use the exact sum when it provably fits int64;
+            # otherwise fall through to the C++ path below (float64 for
+            # overflow, invalid propagation). Nansum skips invalids.
+            arr_np = np.asarray(self)
+            if reduceFunc == REDUCE_FUNCTIONS.REDUCE_NANSUM:
+                arr_np = arr_np[arr_np != INVALID_DICT[self.dtype.num]]
+            result = _exact_int64_sum(arr_np)
+            if result is None:
+                result = TypeRegister.MathLedger._REDUCE(self, reduceFunc)
+        else:
+            result = TypeRegister.MathLedger._REDUCE(self, reduceFunc)
+
+        if reduceFunc in (REDUCE_FUNCTIONS.REDUCE_SUM, REDUCE_FUNCTIONS.REDUCE_NANSUM):
+            result = _fallback_float_sum_if_overflowed(self, result, reduceFunc)
 
         # It's possible there was no result returned from the reduction function;
         # e.g. if the input was empty. If the function being called is well-defined
@@ -2424,13 +2485,48 @@ class FastArray(np.ndarray):
     @staticmethod
     @_ArrayFunctionHelper.register_array_function(np.sum)
     def _sum(a, axis=None, dtype=None, out=None, keepdims=None, initial=None, where=None):
-        result = rc.Reduce(a, REDUCE_FUNCTIONS.REDUCE_SUM, 0)
+        # See the int64 bypass in __array_ufunc__: rc.Reduce accumulates in
+        # float64, losing exactness past 2**53. Only bypass the plain
+        # flattened, no-dtype/no-out case; anything else keeps the C++ path.
+        arr_np = np.asarray(a)
+        if (
+            arr_np.dtype.kind == "i"
+            and arr_np.dtype.itemsize == 8
+            and arr_np.ndim == 1
+            and axis is None
+            and dtype is None
+            and out is None
+            and keepdims in (None, False)
+            and initial is None
+            and where is None
+        ):
+            result = _exact_int64_sum(arr_np)
+            if result is None:
+                result = rc.Reduce(a, REDUCE_FUNCTIONS.REDUCE_SUM, 0)
+        else:
+            result = rc.Reduce(a, REDUCE_FUNCTIONS.REDUCE_SUM, 0)
+        result = _fallback_float_sum_if_overflowed(a, result, REDUCE_FUNCTIONS.REDUCE_SUM)
         return FastArray._py_number_to_np_dtype(result, a.dtype)
 
     @staticmethod
     @_ArrayFunctionHelper.register_array_function(np.nansum)
     def _nansum(a, axis=None, dtype=None, out=None, keepdims=None):
-        result = rc.Reduce(a, REDUCE_FUNCTIONS.REDUCE_NANSUM, 0)
+        arr_np = np.asarray(a)
+        if (
+            arr_np.dtype.kind == "i"
+            and arr_np.dtype.itemsize == 8
+            and arr_np.ndim == 1
+            and axis is None
+            and dtype is None
+            and out is None
+            and keepdims in (None, False)
+        ):
+            result = _exact_int64_sum(arr_np[arr_np != INVALID_DICT[arr_np.dtype.num]])
+            if result is None:
+                result = rc.Reduce(a, REDUCE_FUNCTIONS.REDUCE_NANSUM, 0)
+        else:
+            result = rc.Reduce(a, REDUCE_FUNCTIONS.REDUCE_NANSUM, 0)
+        result = _fallback_float_sum_if_overflowed(a, result, REDUCE_FUNCTIONS.REDUCE_NANSUM)
         return FastArray._py_number_to_np_dtype(result, a.dtype)
 
     @staticmethod
@@ -4567,7 +4663,27 @@ class FastArray(np.ndarray):
         if reduceFunc is not None and len(kwargs) == 0:
             # speed path (todo add call to ledger)
             # default to ddof=0 when no kwargs passed
-            result = rc.Reduce(args[0], reduceFunc, 0)
+            if (
+                reduceFunc in (REDUCE_FUNCTIONS.REDUCE_SUM, REDUCE_FUNCTIONS.REDUCE_NANSUM)
+                and args[0].dtype.kind == "i"
+                and args[0].dtype.itemsize == 8
+                and np.asanyarray(args[0]).ndim == 1
+            ):
+                # rc.Reduce accumulates sums in float64, losing exactness past
+                # 2**53. Use the exact sum when it provably fits int64;
+                # otherwise keep the C++ path (float64 for overflow,
+                # invalid propagation). Nansum skips invalids.
+                arr_np = np.asarray(args[0])
+                if reduceFunc == REDUCE_FUNCTIONS.REDUCE_NANSUM:
+                    arr_np = arr_np[arr_np != INVALID_DICT[args[0].dtype.num]]
+                result = _exact_int64_sum(arr_np)
+                if result is None:
+                    result = rc.Reduce(args[0], reduceFunc, 0)
+            else:
+                result = rc.Reduce(args[0], reduceFunc, 0)
+
+            if reduceFunc in (REDUCE_FUNCTIONS.REDUCE_SUM, REDUCE_FUNCTIONS.REDUCE_NANSUM):
+                result = _fallback_float_sum_if_overflowed(args[0], result, reduceFunc)
 
             if result is not None:
                 # TypeRegister.MathLedger._REDUCE(args[0], newfunc)
@@ -5023,8 +5139,29 @@ class FastArray(np.ndarray):
             if dtype is None:
                 dtype = args[0].dtype
 
-            # MathLedger
-            result = TypeRegister.MathLedger._REDUCE(args[0], reduce_func)
+            if (
+                reduce_func in (REDUCE_FUNCTIONS.REDUCE_SUM, REDUCE_FUNCTIONS.REDUCE_NANSUM)
+                and args[0].dtype.kind == "i"
+                and args[0].dtype.itemsize == 8
+                and args[0].ndim == 1
+                and kwargs.get("dtype") is None
+            ):
+                # rc.Reduce accumulates sums in float64, which loses exactness
+                # for int64 sums past 2**53. Use the exact sum when it
+                # provably fits int64; otherwise keep the C++ path, which
+                # returns float64 for overflowing sums and propagates
+                # invalids. Nansum skips invalids, so mask them first.
+                arr_np = np.asarray(args[0])
+                if reduce_func == REDUCE_FUNCTIONS.REDUCE_NANSUM:
+                    arr_np = arr_np[arr_np != INVALID_DICT[args[0].dtype.num]]
+                result = _exact_int64_sum(arr_np)
+                if result is None:
+                    result = TypeRegister.MathLedger._REDUCE(args[0], reduce_func)
+            else:
+                # MathLedger
+                result = TypeRegister.MathLedger._REDUCE(args[0], reduce_func)
+            if reduce_func in (REDUCE_FUNCTIONS.REDUCE_SUM, REDUCE_FUNCTIONS.REDUCE_NANSUM):
+                result = _fallback_float_sum_if_overflowed(args[0], result, reduce_func)
             char = np.dtype(dtype).char
             if FastArray.Verbose > 1:
                 print("***result from reduce", result, type(result), dtype, char)

@@ -18,7 +18,7 @@ requirements:
     - ansi2html >=1.5.2
     - numpy >=1.23
     - numba >=0.56.2
-    - pandas >=1.0,<3.0
+    - pandas >=3.0,<4
     - python
     - python-dateutil
     - riptide_cpp >=1.19.0,<2 # run with any (compatible) version in this range

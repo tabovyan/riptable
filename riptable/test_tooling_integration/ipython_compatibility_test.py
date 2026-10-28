@@ -157,7 +157,7 @@ class TestCompleter(unittest.TestCase):
 
         ip = get_ipython()
         # Test some random unicode symbols
-        keys = random.sample(latex_symbols.keys(), 10)
+        keys = random.sample(list(latex_symbols.keys()), 10)
         for k in keys:
             text, matches = ip.complete(k)
             nt.assert_equal(len(matches), 1)
@@ -172,8 +172,6 @@ class TestCompleter(unittest.TestCase):
         nt.assert_in("\\alpha", matches)
         nt.assert_in("\\aleph", matches)
 
-    @pytest.mark.xfail(reason="RIP-318 - AssertionError: 0 != 1")
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     def test_back_latex_completion(self):
         ip = get_ipython()
 
@@ -182,8 +180,6 @@ class TestCompleter(unittest.TestCase):
         nt.assert_equal(len(matches), 1)
         nt.assert_equal(matches[0], "\\beta")
 
-    @pytest.mark.xfail(reason="RIP-318 - AssertionError: 0 != 1")
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     def test_back_unicode_completion(self):
         ip = get_ipython()
 
@@ -191,8 +187,6 @@ class TestCompleter(unittest.TestCase):
         nt.assert_equal(len(matches), 1)
         nt.assert_equal(matches[0], "\\ROMAN NUMERAL FIVE")
 
-    @pytest.mark.xfail(reason="RIP-318 - AssertionError: 0 != 1")
-    @pytest.mark.skipif(is_running_in_teamcity(), reason="Please remove alongside xfail removal.")
     def test_forward_unicode_completion(self):
         ip = get_ipython()
 
@@ -291,18 +285,22 @@ class TestCompleter(unittest.TestCase):
             escaped = name if sys.platform == "win32" else "foo\\'bar"
 
             # Single quote matches embedded single quote
+            # Use the public complete() API with line_buffer: _complete's
+            # return contract changed in IPython 9 (dict of matcher
+            # results), and complete() needs the line buffer for file
+            # completions.
             text = "open('foo"
-            c = ip.Completer._complete(cursor_line=0, cursor_pos=len(text), full_text=text)[1]
+            c = ip.Completer.complete(line_buffer=text)[1]
             nt.assert_equal(c, [escaped])
 
             # Double quote requires no escape
             text = 'open("foo'
-            c = ip.Completer._complete(cursor_line=0, cursor_pos=len(text), full_text=text)[1]
+            c = ip.Completer.complete(line_buffer=text)[1]
             nt.assert_equal(c, [name])
 
             # No quote requires an escape
             text = "%ls foo"
-            c = ip.Completer._complete(cursor_line=0, cursor_pos=len(text), full_text=text)[1]
+            c = ip.Completer.complete(line_buffer=text)[1]
             nt.assert_equal(c, [escaped])
 
     @pytest.mark.xfail(reason="RIP-318 - assert ['TestClass.T...TestClass.a1'] == ['TestClass.a', 'TestClass.a1']")
@@ -353,12 +351,12 @@ class TestCompleter(unittest.TestCase):
 
         jedi_version = tuple(int(i) for i in jedi.__version__.split(".")[:3])
         if jedi_version > (0, 10):
-            yield _test_complete, "jedi >0.9 should complete and not crash", "a=1;a.", "real"
-        yield _test_complete, "can infer first argument", 'a=(1,"foo");a[0].', "real"
-        yield _test_complete, "can infer second argument", 'a=(1,"foo");a[1].', "capitalize"
-        yield _test_complete, "cover duplicate completions", "im", "import", 0, 2
+            _test_complete("jedi >0.9 should complete and not crash", "a=1;a.", "real")
+        _test_complete("can infer first argument", 'a=(1,"foo");a[0].', "real")
+        _test_complete("can infer second argument", 'a=(1,"foo");a[1].', "capitalize")
+        _test_complete("cover duplicate completions", "im", "import", 0, 2)
 
-        yield _test_not_complete, "does not mix types", 'a=(1,"foo");a[0].', "capitalize"
+        _test_not_complete("does not mix types", 'a=(1,"foo");a[0].', "capitalize")
 
     def test_completion_have_signature(self):
         """
@@ -412,8 +410,15 @@ class TestCompleter(unittest.TestCase):
         def _(line, cursor_pos, expect, message, completion):
             with greedy_completion(), provisionalcompleter():
                 ip.Completer.use_jedi = False
-                _, c = ip.complete(".", line=line, cursor_pos=cursor_pos)
-                nt.assert_in(expect, c, message % c)
+                # Matches are fragment-relative in IPython 9 (".real")
+                # but carried the full prefix in older versions
+                # ("a[0].real"). The fragment includes any partially
+                # typed attribute (".r" for "a[0].r"), so strip it to
+                # get the base the expected name is appended to.
+                fragment, c = ip.complete(".", line=line, cursor_pos=cursor_pos)
+                typed = line[:cursor_pos].rsplit(".", 1)[-1] if "." in line[:cursor_pos] else ""
+                base = fragment[: len(fragment) - len(typed)] if typed else fragment
+                nt.assert_in(base + expect.rsplit(".", 1)[-1], c, message % c)
 
                 ip.Completer.use_jedi = True
                 with provisionalcompleter():
@@ -421,11 +426,15 @@ class TestCompleter(unittest.TestCase):
                 nt.assert_in(completion, completions)
 
         with provisionalcompleter():
-            yield _, "a[0].", 5, "a[0].real", "Should have completed on a[0].: %s", Completion(5, 5, "real")
-            yield _, "a[0].r", 6, "a[0].real", "Should have completed on a[0].r: %s", Completion(5, 6, "real")
+            _("a[0].", 5, "a[0].real", "Should have completed on a[0].: %s", Completion(5, 5, "real"))
+            _("a[0].r", 6, "a[0].real", "Should have completed on a[0].r: %s", Completion(5, 6, "real"))
 
-            yield _, "a[0].from_", 10, "a[0].from_bytes", "Should have completed on a[0].from_: %s", Completion(
-                5, 10, "from_bytes"
+            _(
+                "a[0].from_",
+                10,
+                "a[0].from_bytes",
+                "Should have completed on a[0].from_: %s",
+                Completion(5, 10, "from_bytes"),
             )
 
     #    @pytest.mark.xfail(reason="RIP-318 - requires traitlets module")
@@ -625,20 +634,21 @@ class TestCompleter(unittest.TestCase):
         ip = get_ipython()
         c = ip.Completer
 
+        # IPython 9 spells the scheme "nocolor" (lowercase).
         s, matches = c.complete(None, "colo")
         nt.assert_in("%colors", matches)
         s, matches = c.complete(None, "colo")
-        nt.assert_not_in("NoColor", matches)
+        nt.assert_not_in("nocolor", matches)
         s, matches = c.complete(None, "%colors")  # No trailing space
-        nt.assert_not_in("NoColor", matches)
+        nt.assert_not_in("nocolor", matches)
         s, matches = c.complete(None, "colors ")
-        nt.assert_in("NoColor", matches)
+        nt.assert_in("nocolor", matches)
         s, matches = c.complete(None, "%colors ")
-        nt.assert_in("NoColor", matches)
-        s, matches = c.complete(None, "colors NoCo")
-        nt.assert_list_equal(["NoColor"], matches)
-        s, matches = c.complete(None, "%colors NoCo")
-        nt.assert_list_equal(["NoColor"], matches)
+        nt.assert_in("nocolor", matches)
+        s, matches = c.complete(None, "colors noco")
+        nt.assert_list_equal(["nocolor"], matches)
+        s, matches = c.complete(None, "%colors noco")
+        nt.assert_list_equal(["nocolor"], matches)
 
     def test_match_dict_keys(self):
         """
@@ -647,16 +657,23 @@ class TestCompleter(unittest.TestCase):
         """
         delims = " \t\n`!@#$^&*()=+[{]}\\|;:'\",<>?"
 
-        keys = ["foo", b"far"]
-        assert match_dict_keys(keys, "b'", delims=delims) == ("'", 2, ["far"])
-        assert match_dict_keys(keys, "b'f", delims=delims) == ("'", 2, ["far"])
-        assert match_dict_keys(keys, 'b"', delims=delims) == ('"', 2, ["far"])
-        assert match_dict_keys(keys, 'b"f', delims=delims) == ('"', 2, ["far"])
+        def matched_keys(prefix):
+            # IPython 9 returns the matched keys as a dict mapping each
+            # key to a _DictKeyState; older versions returned a list.
+            # Comparing the key lists keeps this version-agnostic.
+            quote, token_start, matched = match_dict_keys(keys, prefix, delims=delims)
+            return quote, token_start, list(matched)
 
-        assert match_dict_keys(keys, "'", delims=delims) == ("'", 1, ["foo"])
-        assert match_dict_keys(keys, "'f", delims=delims) == ("'", 1, ["foo"])
-        assert match_dict_keys(keys, '"', delims=delims) == ('"', 1, ["foo"])
-        assert match_dict_keys(keys, '"f', delims=delims) == ('"', 1, ["foo"])
+        keys = ["foo", b"far"]
+        assert matched_keys("b'") == ("'", 2, ["far"])
+        assert matched_keys("b'f") == ("'", 2, ["far"])
+        assert matched_keys('b"') == ('"', 2, ["far"])
+        assert matched_keys('b"f') == ('"', 2, ["far"])
+
+        assert matched_keys("'") == ("'", 1, ["foo"])
+        assert matched_keys("'f") == ("'", 1, ["foo"])
+        assert matched_keys('"') == ('"', 1, ["foo"])
+        assert matched_keys('"f') == ('"', 1, ["foo"])
 
         match_dict_keys
 

@@ -3185,7 +3185,11 @@ def test_categorical_convert(values):
     categories = list(set(values))
     # pd_c is a pandas Categorical with a missing category.
     # pandas Categorical will designate the values with a missing category by -1.
-    pd_c = pd.Categorical(values, categories=categories[:-1])
+    # Constructing with values outside the categories is deprecated in pandas
+    # 3, so build the same codes/categories pair via from_codes instead.
+    kept_categories = categories[:-1]
+    codes = [kept_categories.index(v) if v in kept_categories else -1 for v in values]
+    pd_c = pd.Categorical.from_codes(codes, categories=kept_categories)
 
     # The output of categorical_convert, when applied to a pandas Categorical, can be used to
     # construct a riptable Categorical. We test that this handles missing categories correctly.
@@ -3218,7 +3222,11 @@ def test_categorical_convert_xfail(values):
     categories = list(set(values))
     # pd_c is a pandas Categorical with a missing category.
     # pandas Categorical will designate the values with a missing category by -1.
-    pd_c = pd.Categorical(values, categories=categories[:-1])
+    # Constructing with values outside the categories is deprecated in pandas
+    # 3, so build the same codes/categories pair via from_codes instead.
+    kept_categories = categories[:-1]
+    codes = [kept_categories.index(v) if v in kept_categories else -1 for v in values]
+    pd_c = pd.Categorical.from_codes(codes, categories=kept_categories)
 
     rt_values, rt_categories = rt.categorical_convert(pd_c)
     cat = rt.Categorical(rt_values, categories=rt_categories)

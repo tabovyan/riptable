@@ -403,7 +403,7 @@ def test_monkey_patch_complete_match_ordering(rt_data: Union[Dataset, Multiset, 
     ns_key: str = text_split[0]
     ip.user_ns[ns_key] = rt_data
 
-    _, matches = complete(line_buffer=text)
+    fragment, matches = complete(line_buffer=text)
 
     expected_matches: List[str] = []
     if len(text_split) > 2:  # support arbitrary object depth expectations
@@ -416,7 +416,10 @@ def test_monkey_patch_complete_match_ordering(rt_data: Union[Dataset, Multiset, 
     for expected_index, expected_match in enumerate(expected_matches):
         # Match will be namespace name dot key, attribute, or method name.
         # E.g., given namespace name `d` and key `alpha` completion matches will contain the value `d.alpha`.
-        expected_match: str = text + expected_match
+        # The fragment returned by complete() is the text actually
+        # completed (e.g. "d." on older IPython, "." on IPython 9);
+        # deriving the expectation from it keeps this version-agnostic.
+        expected_match: str = fragment + expected_match
         assert expected_index == matches.index(
             expected_match
         ), f"expected match {expected_match} in completion result position {expected_index}\nwanted keys {expected_matches}\ngot matches {matches}"

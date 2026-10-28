@@ -370,11 +370,15 @@ def generate_array_axis_and_repeats_array(draw, dtype, shape):
     else:
         repeats_length = 0
 
+    # Generate the repeats as an array, not a list: hypothesis refuses to
+    # generate lists larger than it supports, and repeats_length is the
+    # flattened / axis size of the generated array (easily in the thousands).
+    # np.repeat / rt.repeat accept an array of repeats with the same meaning.
     repeats = draw(
-        lists(
-            integers(min_value=0, max_value=10),
-            min_size=repeats_length,
-            max_size=repeats_length,
+        arrays(
+            dtype=np.int64,
+            shape=repeats_length,
+            elements=integers(min_value=0, max_value=10),
         )
     )
     return arr, axis, repeats

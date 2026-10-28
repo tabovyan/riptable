@@ -2658,7 +2658,7 @@ class DateTime_Test(unittest.TestCase):
         df = pd.DataFrame({"pdt": pdt, "dummy": 1})
         df = df.set_index("pdt")
 
-        rule = "1H"
+        rule = "1h"
         pd_result = df.resample(rule).count().index.values.view(np.int64)
         rt_result = dtn.resample(rule)
         self.assertTrue(
@@ -2666,7 +2666,7 @@ class DateTime_Test(unittest.TestCase):
             msg=f"Failed to resample with rule {rule}",
         )
 
-        rule = "30T"
+        rule = "30min"
         pd_result = df.resample(rule).count().index.values.view(np.int64)
         rt_result = dtn.resample(rule)
         self.assertTrue(
@@ -2674,7 +2674,7 @@ class DateTime_Test(unittest.TestCase):
             msg=f"Failed to resample with rule {rule}",
         )
 
-        rule = "S"
+        rule = "s"
         pd_result = df.resample(rule).count().index.values.view(np.int64)
         rt_result = dtn.resample(rule)
         self.assertTrue(
@@ -2682,7 +2682,7 @@ class DateTime_Test(unittest.TestCase):
             msg=f"Failed to resample with rule {rule}",
         )
 
-        rule = "1H"
+        rule = "1h"
         pd_result = df.resample(rule).count().index.values.view(np.int64)
         rt_result = dtn.resample(rule)
         self.assertTrue(

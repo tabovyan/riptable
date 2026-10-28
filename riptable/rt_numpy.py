@@ -4940,6 +4940,18 @@ class bool_(np.bool_):
         return instance.view(TypeRegister.FastArray)
 
 
+def _int_scalar_from_scalar(value, np_dtype):
+    """
+    Construct an integer scalar from a Python/numpy scalar value without
+    the deprecated out-of-bound conversion in ``np.<dtype>(value)``.
+
+    ``np.int8(255)`` wraps to -1 but emits a DeprecationWarning (and errors
+    in NumPy 2); casting through an array wraps silently with the same
+    result, and the inner scalar is already in range for the outer call.
+    """
+    return np_dtype(np.array(value).astype(np_dtype)[()])
+
+
 # -------------------------------------------------------
 class int8(np.int8):
     """
@@ -4964,7 +4976,10 @@ class int8(np.int8):
             # check if converting an existing array
             if isinstance(args[0], np.ndarray):
                 return TypeRegister.FastArray.astype(args[0], np.int8, **kwargs)
-        instance = np.int8(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.int8)
+        else:
+            instance = np.int8(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -4994,7 +5009,10 @@ class uint8(np.uint8):
             # check if converting an existing array
             if isinstance(args[0], np.ndarray):
                 return TypeRegister.FastArray.astype(args[0], np.uint8, **kwargs)
-        instance = np.uint8(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.uint8)
+        else:
+            instance = np.uint8(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5022,7 +5040,10 @@ class int16(np.int16):
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], np.ndarray):
             return TypeRegister.FastArray.astype(args[0], np.int16, **kwargs)
-        instance = np.int16(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.int16)
+        else:
+            instance = np.int16(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5050,7 +5071,10 @@ class uint16(np.uint16):
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], np.ndarray):
             return TypeRegister.FastArray.astype(args[0], np.uint16, **kwargs)
-        instance = np.uint16(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.uint16)
+        else:
+            instance = np.uint16(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5078,7 +5102,10 @@ class int32(np.int32):
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], np.ndarray):
             return TypeRegister.FastArray.astype(args[0], np.int32, **kwargs)
-        instance = np.int32(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.int32)
+        else:
+            instance = np.int32(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5106,7 +5133,10 @@ class uint32(np.uint32):
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], np.ndarray):
             return TypeRegister.FastArray.astype(args[0], np.uint32, **kwargs)
-        instance = np.uint32(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.uint32)
+        else:
+            instance = np.uint32(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5134,7 +5164,10 @@ class int64(np.int64):
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], np.ndarray):
             return TypeRegister.FastArray.astype(args[0], np.int64, **kwargs)
-        instance = np.int64(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.int64)
+        else:
+            instance = np.int64(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5162,7 +5195,10 @@ class uint64(np.uint64):
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], np.ndarray):
             return TypeRegister.FastArray.astype(args[0], np.uint64, **kwargs)
-        instance = np.uint64(*args, **kwargs)
+        if len(args) == 1 and not kwargs and isinstance(args[0], (int, float, str, bytes, bool, np.integer, np.floating)):
+            instance = _int_scalar_from_scalar(args[0], np.uint64)
+        else:
+            instance = np.uint64(*args, **kwargs)
         if np.isscalar(instance):
             return instance
         return instance.view(TypeRegister.FastArray)
@@ -5637,7 +5673,10 @@ def hstack(tup: Sequence[np.ndarray], dtype: Optional[Union[str, type, np.dtype]
         arr_type_hstack_func = getattr(single_arr_type, "hstack")
         # pass kwargs in case special type has unique keywords
         return arr_type_hstack_func(tup, **kwargs)
-    elif single_arr_type is None:
+    elif single_arr_type is None or single_arr_type is np.ndarray:
+        # Plain ndarrays (and mixed-type inputs) are upgraded to FastArray,
+        # matching the other rt.* numpy wrappers; types with their own
+        # hstack method were already handled above.
         single_arr_type = TypeRegister.FastArray
 
     dtypenum = -1

@@ -2,6 +2,7 @@
 If DisplayOptions.CUSTOM_COMPLETION is True then this will disable IPython Jedi and
 use a IPCompleter custom complete.
 """
+import re
 import sys
 from collections import ChainMap
 from types import MethodType
@@ -256,6 +257,248 @@ def _monkey_patched__complete(
     return text, _matches, origins, completions
 
 
+def _ipython_major_version() -> int:
+    try:
+        import IPython
+
+        return int(str(IPython.__version__).split(".")[0])
+    except Exception:
+        return 0
+
+
+def _monkey_patched__complete_v9(self, *, cursor_line, cursor_pos, line_buffer=None, text=None, full_text=None):
+    """
+    IPython 9 variant of the monkey-patched ``_complete``.
+
+    IPython 9 replaced the provisional 4-tuple ``_complete`` API with a
+    dict of matcher results, and its ``custom_completer_matcher`` already
+    marks custom completions as ordered. This wrapper therefore delegates
+    to the original ``_complete`` (saved as ``_riptable_original_complete``
+    by ``_set__monkey_patched__complete``) and only strips the
+    order-preservation sentinel appended by
+    ``_attribute_method_completion`` (which would otherwise appear as a
+    completion) and marks the affected matcher result as ordered, so the
+    keys-first order is kept instead of being re-sorted.
+    """
+    call_kwargs = dict(
+        cursor_line=cursor_line, cursor_pos=cursor_pos, line_buffer=line_buffer, text=text, full_text=full_text
+    )
+    results = self._riptable_original_complete(**call_kwargs)
+    if _python_matcher_empty(results):
+        token = _completion_token(self, text, line_buffer, full_text, cursor_pos, cursor_line)
+        if token.endswith(".") and token.count(".") >= 2:
+            retried = _retry_with_plain_eval(self, call_kwargs)
+            if retried is not None:
+                results = retried
+    sentinel_found = False
+    for matcher_id, result in results.items():
+        if "jedi" in matcher_id.lower():
+            continue
+        completions = result.get("completions", [])
+        if not isinstance(completions, list):
+            try:
+                completions = list(completions)
+            except TypeError:
+                continue
+            result["completions"] = completions
+        texts = [
+            completion if isinstance(completion, str) else getattr(completion, "text", None)
+            for completion in completions
+        ]
+        if not any(isinstance(t, str) and t.endswith(_PRESERVE_ORDER_SENTINEL) for t in texts):
+            continue
+        result["completions"] = [
+            completion
+            for completion, text_value in zip(completions, texts)
+            if not (isinstance(text_value, str) and text_value.endswith(_PRESERVE_ORDER_SENTINEL))
+        ]
+        result["ordered"] = True
+        sentinel_found = True
+    if sentinel_found:
+        # The attribute matcher already provides every completion (keys
+        # first); Jedi's duplicates would be yielded first by
+        # ``completions()`` and displace that order during deduplication.
+        # Dropping them here mirrors the legacy ``complete()`` behavior,
+        # which arranged results while skipping the Jedi matcher.
+        for matcher_id in [key for key in results if "jedi" in key.lower()]:
+            del results[matcher_id]
+        return results
+
+    # When Jedi is enabled it suppresses the Python matcher, so no
+    # sentinel-marked result exists and Jedi alone provides the attribute
+    # completions (sorted by Jedi). Reorder those by the object's keys so
+    # keys still come first, matching the disabled-Jedi behavior.
+    _reorder_jedi_completions_by_keys(self, results, text, line_buffer, full_text, cursor_pos, cursor_line)
+    return results
+
+
+_DOTTED_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
+
+
+def _completion_token(completer, text, line_buffer, full_text, cursor_pos, cursor_line) -> str:
+    """Return the completion token for a ``_complete`` call."""
+    if text:
+        return text
+    line = line_buffer
+    if not line and full_text:
+        try:
+            line = full_text.split("\n")[cursor_line]
+        except Exception:
+            line = ""
+    if not line:
+        return ""
+    try:
+        return completer.splitter.split_line(line, cursor_pos)
+    except Exception:
+        return ""
+
+
+def _plain_eval_dotted_expr(completer, expr):
+    """
+    Evaluate a dotted-name expression with plain ``eval``.
+
+    IPython 9's guarded evaluation refuses attribute access on objects
+    with a custom ``__getattr__`` (which riptable containers use for
+    columns/items), so nested expressions such as ``m.ds_alpha`` evaluate
+    to ``not_found`` and yield no completions. Only plain dotted names
+    rooted at an object with keys (or ``_ipython_key_completions_``) are
+    evaluated this way; anything else returns ``None``. Attribute access
+    on those containers is a pure lookup, matching what IPython 8 did
+    with plain ``eval`` for every completion.
+    """
+    if not _DOTTED_NAME_RE.fullmatch(expr):
+        return None
+    try:
+        from IPython.core.completer import not_found
+    except Exception:
+        return None
+    try:
+        root = completer._evaluate_expr(expr.split(".", 1)[0])
+    except Exception:
+        return None
+    if root is not_found:
+        return None
+    if not (hasattr(root, "keys") or hasattr(root, "_ipython_key_completions_")):
+        return None
+    try:
+        namespace = {}
+        for ns in (getattr(completer, "global_namespace", None), getattr(completer, "namespace", None)):
+            if ns is not None:
+                namespace.update(dict(ns))
+        return eval(expr, namespace)  # noqa: S307 - dotted names on keyed containers only
+    except Exception:
+        return None
+
+
+def _python_matcher_empty(results) -> bool:
+    """True when the Python matcher ran but produced no completions."""
+    for matcher_id, result in results.items():
+        if matcher_id.endswith("python_matcher"):
+            completions = result.get("completions", [])
+            return isinstance(completions, list) and len(completions) == 0
+    return False
+
+
+def _retry_with_plain_eval(completer, call_kwargs):
+    """
+    Re-run the original ``_complete`` with plain evaluation for dotted
+    names, for one call only. Guarded evaluation refuses nested attribute
+    access on riptable containers; the retry falls back to plain eval
+    only for dotted names rooted at keyed containers (see
+    ``_plain_eval_dotted_expr``) and restores the guarded evaluator
+    afterwards, whatever happens.
+    """
+    try:
+        from IPython.core.completer import not_found
+    except Exception:
+        return None
+    original_evaluate = completer._evaluate_expr
+
+    def _patched_evaluate(expr):
+        obj = original_evaluate(expr)
+        if obj is not_found:
+            alt = _plain_eval_dotted_expr(completer, expr)
+            return alt if alt is not None else obj
+        return obj
+
+    completer._evaluate_expr = _patched_evaluate
+    try:
+        return completer._riptable_original_complete(**call_kwargs)
+    except Exception:
+        return None
+    finally:
+        try:
+            del completer._evaluate_expr
+        except Exception:
+            completer._evaluate_expr = original_evaluate
+
+
+def _reorder_jedi_completions_by_keys(
+    completer, results, text, line_buffer, full_text, cursor_pos, cursor_line
+) -> None:
+    """Reorder Jedi attribute completions so object keys come first.
+
+    Only applies when the completion token is an attribute access (ends
+    with ``.``) on an object with keys. Non-key completions keep Jedi's
+    order. Any failure to evaluate the object leaves results untouched.
+    """
+    token = _completion_token(completer, text, line_buffer, full_text, cursor_pos, cursor_line)
+    if not token or not token.endswith("."):
+        return
+    expr = token[:-1]
+    if not expr:
+        return
+    obj = _plain_eval_dotted_expr(completer, expr)
+    if obj is None:
+        try:
+            from IPython.core.completer import not_found
+
+            obj = completer._evaluate_expr(expr)
+            if obj is not_found:
+                return
+        except Exception:
+            return
+    try:
+        if hasattr(obj, "_ipython_key_completions_"):
+            keys = obj._ipython_key_completions_()
+        elif hasattr(obj, "keys"):
+            keys = obj.keys()
+        else:
+            return
+        keys = [str(key) for key in keys]
+        if not keys:
+            return
+        rank = {key: index for index, key in enumerate(sorted(keys))}
+        for matcher_id, result in results.items():
+            if "jedi" not in matcher_id.lower():
+                continue
+            completions = result.get("completions", [])
+            if not isinstance(completions, list):
+                try:
+                    completions = list(completions)
+                except TypeError:
+                    continue
+                result["completions"] = completions
+
+            def _completion_name(completion):
+                name = getattr(completion, "name_with_symbols", None)
+                if name is None:
+                    name = getattr(completion, "name", None)
+                if name is None:
+                    name = getattr(completion, "text", None)
+                if not isinstance(name, str):
+                    return None
+                return name.rsplit(".", 1)[-1]
+
+            reordered = sorted(
+                enumerate(completions),
+                key=lambda pair: (rank.get(_completion_name(pair[1]), len(rank)), pair[0]),
+            )
+            result["completions"] = [completion for _, completion in reordered]
+    except Exception:
+        return
+
+
 def _disable_jedi() -> None:
     ip = get_ipython()
     ip.Completer.use_jedi = False
@@ -263,7 +506,13 @@ def _disable_jedi() -> None:
 
 def _set__monkey_patched__complete() -> None:
     ip = get_ipython()
-    ip.Completer._complete = MethodType(_monkey_patched__complete, ip.Completer)
+    if _ipython_major_version() >= 9:
+        completer = ip.Completer
+        if not hasattr(completer, "_riptable_original_complete"):
+            completer._riptable_original_complete = completer._complete
+        completer._complete = MethodType(_monkey_patched__complete_v9, completer)
+    else:
+        ip.Completer._complete = MethodType(_monkey_patched__complete, ip.Completer)
 
 
 def _set_custom_attribute_completion() -> None:

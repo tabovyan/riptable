@@ -624,12 +624,26 @@ class Dataset(Struct):
         """
         Pulls data from pandas dataframes. Uses get attribute, so does not need to import pandas.
         """
+        from .Utils.pandas_utils import _RIPTABLE_CATEGORICAL_ATTRS_KEY
+
+        categorical_meta = getattr(df, "attrs", {}).get(_RIPTABLE_CATEGORICAL_ATTRS_KEY, {})
+        if not isinstance(categorical_meta, dict):
+            categorical_meta = {}
         df_dict = {}
         for k in df.columns:
             col = df[k]
             # categoricals will be preserved in _possibly_convert
             if hasattr(col, "cat"):
-                pass
+                # Carry the per-column categorical metadata stashed by
+                # ``Dataset.to_pandas`` onto the Series; column Series do
+                # not inherit the DataFrame's attrs, and _possibly_convert
+                # only sees the Series.
+                meta = categorical_meta.get(k)
+                if meta is not None:
+                    try:
+                        col.attrs[_RIPTABLE_CATEGORICAL_ATTRS_KEY] = meta
+                    except Exception:
+                        pass
             # series column (added with underlying array)
             elif hasattr(col, "values"):
                 col = col.values
@@ -3160,24 +3174,39 @@ class Dataset(Struct):
 
         Notes
         -----
-        As of Pandas v1.1.0 ``pandas.Categorical`` does not handle riptable ``CategoryMode``s for ``Dictionary``,
-        ``MultiKey``, nor ``IntEnum``. Converting a Categorical of these category modes will result in loss of information
-        and emit a warning. Although the column values will be respected, the underlying category codes will be remapped
-        as a single key categorical.
+        ``pandas.Categorical`` does not have riptable ``CategoryMode``s for ``Dictionary``,
+        ``MultiKey``, nor ``IntEnum``, nor a ``base_index``. Such columns are emitted as
+        single-key categoricals (with a warning) for pandas consumers, but the
+        original categorical is stashed in the returned frame's ``attrs`` so that
+        :meth:`Dataset.from_pandas` restores it exactly, including its mode,
+        category mapping or multi-key categories, ``base_index``, and ``ordered``
+        flag. If the frame is edited (e.g. its categories are renamed or
+        reordered) or the ``attrs`` are lost, ``from_pandas`` falls back to a
+        plain single-key conversion that still preserves the displayed values.
 
         See Also
         --------
         riptable.Dataset.from_pandas
         """
         import pandas as pd
-        from .Utils.pandas_utils import fastarray_to_pandas_series
+        from .Utils.pandas_utils import _RIPTABLE_CATEGORICAL_ATTRS_KEY, fastarray_to_pandas_series
 
-        return pd.DataFrame(
-            {
-                key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
-                for key, col in self.items()
-            }
-        )
+        series = {
+            key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
+            for key, col in self.items()
+        }
+        df = pd.DataFrame(series)
+        # Per-column categorical metadata lives in the Series' attrs, which
+        # the DataFrame constructor drops; collect it onto the DataFrame so
+        # ``Dataset.from_pandas`` can restore the original categoricals.
+        categorical_meta = {
+            key: col.attrs[_RIPTABLE_CATEGORICAL_ATTRS_KEY]
+            for key, col in series.items()
+            if _RIPTABLE_CATEGORICAL_ATTRS_KEY in getattr(col, "attrs", {})
+        }
+        if categorical_meta:
+            df.attrs[_RIPTABLE_CATEGORICAL_ATTRS_KEY] = categorical_meta
+        return df
 
     def as_pandas_df(self):
         """
@@ -3208,6 +3237,12 @@ class Dataset(Struct):
         """
         Creates a riptable Dataset from a pandas DataFrame. Pandas categoricals
         and datetime arrays are converted to their riptable counterparts.
+        Pandas categoricals keep their category order (including unused
+        categories), missing values, and ``ordered`` flag. Frames produced by
+        :meth:`Dataset.to_pandas` additionally carry the original riptable
+        categoricals in their ``attrs``; those are restored exactly (mode,
+        mapping, ``base_index``), while other categoricals become base-1
+        single-key categoricals.
         Any timezone-unaware datetime arrays (or those using a timezone not
         recognized by riptable) are localized to the timezone specified by the
         tz parameter.
@@ -3234,7 +3269,7 @@ class Dataset(Struct):
         Dataset.to_pandas
         """
         import pandas as pd
-        from .Utils.pandas_utils import pandas_series_to_riptable
+        from .Utils.pandas_utils import _RIPTABLE_CATEGORICAL_ATTRS_KEY, pandas_series_to_riptable
 
         if preserve_index is None:
             index = df.index
@@ -3244,9 +3279,12 @@ class Dataset(Struct):
             preserve_index = not has_default_index
         if preserve_index:
             df = df.reset_index()
+        categorical_meta = getattr(df, "attrs", {}).get(_RIPTABLE_CATEGORICAL_ATTRS_KEY, {})
+        if not isinstance(categorical_meta, dict):
+            categorical_meta = {}
         data = {}
         for key, col in df.items():
-            data[key] = pandas_series_to_riptable(col, tz=tz)
+            data[key] = pandas_series_to_riptable(col, tz=tz, categorical_metadata=categorical_meta.get(key))
 
         return cls(data)
 

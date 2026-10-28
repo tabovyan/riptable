@@ -237,6 +237,14 @@ class GroupByOps_Test(unittest.TestCase):
 
 
 def quantile_params_generator(dtypes, max_N, windowed, with_cats, with_nans, with_infs, seed, scrunity_level=1):
+    # Materialize the parameter sets: pytest no longer accepts a
+    # non-Collection iterable (e.g. a generator) as parametrize argvalues.
+    return list(
+        _quantile_params_generator(dtypes, max_N, windowed, with_cats, with_nans, with_infs, seed, scrunity_level)
+    )
+
+
+def _quantile_params_generator(dtypes, max_N, windowed, with_cats, with_nans, with_infs, seed, scrunity_level=1):
     rng = default_rng(seed)
 
     for dtype in dtypes:
@@ -1226,7 +1234,7 @@ limit = {limit}"""
 
     @pytest.mark.parametrize(
         "N, N_cat, nan_fraction, types, limit, fill_val",
-        fills_params_generator(),
+        list(fills_params_generator()),
     )
     def test_groupbyops_fills(self, N, N_cat, nan_fraction, types, limit, fill_val):
         this_seed = N * N_cat * int(nan_fraction * 1000) % 10_000
