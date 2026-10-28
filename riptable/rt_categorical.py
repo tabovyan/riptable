@@ -153,8 +153,12 @@ def categorical_convert(v: "pd.Categorical", base_index: int = 0) -> Tuple[FastA
     >>> test=Categorical(p)
     Categorical([(0, 3], (0, 3], (0, 3], (3, 6], (3, 6], (3, 6], (6, 7], nan, nan, nan])
     """
-    int_array = FastArray(v._codes)
-    string_array = make_string_array(v.categories._values)
+    int_array = FastArray(v.codes)
+    categories_index = v.categories
+    categories_arr = (
+        categories_index.to_numpy() if hasattr(categories_index, "to_numpy") else np.asarray(categories_index)
+    )
+    string_array = make_string_array(categories_arr)
 
     # invalid indices will be converted to zero invalid
     # this will always get hit
@@ -1827,18 +1831,26 @@ class Categorical(GroupByOps, FastArray):
                 categories = Categories.from_grouping(grouping, invalid_category=invalid_category)
 
         # from pandas categorical, faster track
-        elif pd_opt and isinstance(values, pd_opt.Categorical) and hasattr(values, "_codes"):
+        elif pd_opt and isinstance(values, pd_opt.Categorical):
             if base_index != 1:
                 raise ValueError(f"To preserve invalids, pandas categoricals must be 1-based.")
 
             # pandas invalid -1 turns into riptable invalid 0
             # just like regular int + categories, never change the order of pandas categories
-            categories = values.categories.values
+            # NOTE: in pandas >= 3, ``Index.values`` for string categories returns an
+            # Arrow-backed array instead of an ndarray, so go through ``to_numpy()``.
+            categories_index = values.categories
+            categories = (
+                categories_index.to_numpy()
+                if hasattr(categories_index, "to_numpy")
+                else np.asarray(categories_index)
+            )
+            codes = np.asarray(values.codes)
             if dtype is None:
                 newdt = int_dtype_from_len(len(categories))
-                index = np.add(values._codes, 1, dtype=newdt)
+                index = np.add(codes, 1, dtype=newdt)
             else:
-                index = values._codes + 1
+                index = codes + 1
 
             ordered = values.ordered
 

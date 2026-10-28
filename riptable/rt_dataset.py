@@ -3160,10 +3160,16 @@ class Dataset(Struct):
 
         Notes
         -----
-        As of Pandas v1.1.0 ``pandas.Categorical`` does not handle riptable ``CategoryMode``s for ``Dictionary``,
-        ``MultiKey``, nor ``IntEnum``. Converting a Categorical of these category modes will result in loss of information
-        and emit a warning. Although the column values will be respected, the underlying category codes will be remapped
-        as a single key categorical.
+        ``pandas.Categorical`` has no notion of the riptable ``CategoryMode``s
+        ``Dictionary``, ``MultiKey``, or ``IntEnum``. Columns in those modes are
+        written as plain single-key pandas categoricals (with a warning) and
+        their values are respected, but the original integer codes are remapped.
+        To keep the round-trip lossless, ``to_pandas`` stores the original
+        categorical metadata in ``DataFrame.attrs["riptable_categoricals"]``;
+        :meth:`Dataset.from_pandas` uses it to restore the original mode,
+        mapping, base index, and ordering. If the attrs are dropped (or the
+        pandas categories are edited), ``from_pandas`` falls back to a plain
+        single-key categorical with the same values.
 
         See Also
         --------
@@ -3172,12 +3178,19 @@ class Dataset(Struct):
         import pandas as pd
         from .Utils.pandas_utils import fastarray_to_pandas_series
 
-        return pd.DataFrame(
-            {
-                key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
-                for key, col in self.items()
-            }
-        )
+        series_by_key = {
+            key: fastarray_to_pandas_series(col, use_nullable=use_nullable, unicode=unicode)
+            for key, col in self.items()
+        }
+        df = pd.DataFrame(series_by_key)
+        metas = {
+            key: series.attrs["riptable_categorical"]
+            for key, series in series_by_key.items()
+            if "riptable_categorical" in getattr(series, "attrs", {})
+        }
+        if metas:
+            df.attrs["riptable_categoricals"] = metas
+        return df
 
     def as_pandas_df(self):
         """

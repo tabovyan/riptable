@@ -68,7 +68,7 @@ runtime_reqs = [
     "ansi2html>=1.5.2",
     "numba>=0.56.2",
     _NUMPY_REQ,
-    "pandas>=1.0,<3.0",
+    "pandas>=1.0,<4.0",
     "python-dateutil",
     _TBB_REQ,
     "typing-extensions>=4.9.0",
